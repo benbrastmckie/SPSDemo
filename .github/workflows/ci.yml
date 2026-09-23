@@ -83,7 +83,7 @@ jobs:
       os: ${{ matrix.os }}
 
   hygiene:
-    name: Hygiene (shellcheck, install.sh --help, ci-docs-coherence, actionlint, nix flake check --all-systems)
+    name: Hygiene (lint, actionlint, flake check)
     runs-on: ubuntu-24.04
     # See docs/ci.md's Timeouts table for the sizing rationale.
     timeout-minutes: 15
