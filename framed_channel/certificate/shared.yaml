@@ -1,0 +1,49 @@
+# certificate/shared.yaml -- the content every certificate manifest in this directory shares:
+# the toolchain pointers and the independent-recheck entries (comparator, lean4lean, leanchecker,
+# nanoda). Hand-written, and pointed at by each manifest's `toolchain.shared:` and
+# `trust.G0_checker.independent_recheck.shared:` keys, both set to `certificate/shared.yaml`.
+# This file is NOT a certificate-identity input (see README.md's identity-inputs section): a
+# wording fix here does not require a `recheck.txt` re-adopt, because it restates no evidence of
+# its own -- every claim below is itself a pointer to a pin file or a generated record.
+
+toolchain:
+  lean: "the version in lean/lean-toolchain, full string in axioms.txt"
+  mathlib: "none (the example builds against core Lean and the bundled Std)"
+  build: "cd lean && lake build -- no environment variables, no network"
+  certificate_identity: "the identity line of digests.txt (written by check.sh; the sha256 of its digest lines, which cover the inputs only); axioms.txt, ladder.txt, countermodels.txt and recheck.txt name the same identity"
+  rust: "cargo, rustc, rustfmt, and clippy from PATH, or pinned by the repository root's `rust-toolchain.toml` (read by `flake.nix`, via nix develop); compiled, formatted, linted, and tested by check.sh, locally and in CI (.github/workflows/ci.yml, verify.yml)"
+  extractor: "Charon and Aeneas at the revisions pinned by `../nix/aeneas-pin.json` (and `../flake.lock`, `aeneas/lake-manifest.json`); `certificate/candidates.txt` records the charon version that produced the committed extraction; extracted and bridged, axiom-free, into aeneas/FramedChannelAeneas/Extracted/"
+
+trust:
+  G0_checker:
+    independent_recheck:
+      # check.sh --recheck (scripts/recheck-comparator.sh, scripts/recheck-kernel.sh). The
+      # pointing manifest's own top-level G0_checker verdict is unchanged by this block: it rests
+      # on the axiom audit. Each entry below is scoped to what its checker decides, and holds only
+      # while its record is current.
+      comparator:
+        verdict: verified
+        scope: "this entry only, never the component"
+        record: certificate/recheck.txt
+        current_when: "the certificate identity line of certificate/recheck.txt equals the identity line of certificate/digests.txt; check.sh reports it current or STALE on every run and certificate-identity.sh --check compares them. A STALE record establishes nothing for the tree it does not name"
+        establishes: "for every proofs: name of the pointing manifest other than a flagged row of certificate/policy.txt, as decided by Comparator, its in-process kernel and lean4export at the revisions certificate/recheck.txt's tool revisions section records, in a fresh clean room (core.json for names the core registry registers, bridge.json for the bridge registry's) whose verdict line in recheck.txt is OK: (i) its statement equals its Challenge module's (the pointing manifest's specification: block); (ii) its proof uses no axiom outside {propext, Classical.choice, Quot.sound}; (iii) the Lean kernel linked into Comparator accepts the lean4export export of it and its dependency closure from the project toolchain's build (`lean/lean-toolchain`). Shared-proof rows agree trivially: both sides import the same proved constant. Conditional on Comparator's six assumptions as recorded in recheck.txt, including its sandbox deviations. A name whose config's line is NOT-RUN is not established by this entry"
+        not_established: "that the Challenge statements say what the component should do (G4_specification: a recorded approval); the correctness of landrun and Landlock; a kernel implementation independent of the C++ kernel that built the project (Comparator's kernel is the same C++ kernel code at a later Lean version); anything under G1_translation, G2_ir_faithfulness or G3_models"
+        status: "[PROVED: kernel]"
+      lean4lean:
+        verdict: verified
+        scope: "this entry only, never the component"
+        record: certificate/recheck.txt
+        current_when: "the certificate identity line of certificate/recheck.txt equals the identity line of certificate/digests.txt; check.sh reports it current or STALE on every run and certificate-identity.sh --check compares them. A STALE record establishes nothing for the tree it does not name"
+        establishes: "every declaration added by the modules that declare the pointing manifest's proofs: and supporting: names (every module of lean/, and of aeneas/ when recheck.txt's lean4lean bridge line is OK; the Challenge libraries included) was re-typechecked by Lean4Lean, at the revision recheck.txt records, a Lean-in-Lean kernel built on the project toolchain (`lean/lean-toolchain`), from this identity's .olean build products: exit 0 and a checked-declarations count for every module"
+        not_established: "independence from the C++ kernel (Lean4Lean's own README: derived directly from the C++ kernel implementation, likely sharing some of its implementation bugs, not really an independent implementation); the imported libraries (Init, Std, Lean, and for the bridge Aeneas and Mathlib), loaded from .olean and not re-checked (lean4lean-fresh, core only, is recorded separately and NOT RUN by default); any axiom policy: an axiom is accepted as an axiom, which is why the Challenge modules' sorry passes here -- the axiom audit and Comparator establish the policy; any statement match"
+        status: "[PROVED: kernel]"
+      leanchecker:
+        verdict: validated
+        record: certificate/recheck.txt
+        current_when: "the certificate identity line of certificate/recheck.txt equals the identity line of certificate/digests.txt; check.sh reports it current or STALE on every run and certificate-identity.sh --check compares them. A STALE record establishes nothing for the tree it does not name"
+        establishes: "a replay, by the project toolchain's own leanchecker, of every declaration of the same modules from their .olean files, and (core) of FramedChannel.Registry's whole import closure from Init (leanchecker --fresh): the build products are consistent with the kernel that produced them"
+        not_established: "any independence: it is the same C++ kernel, at the same version, that built the project; any axiom policy; any statement match"
+        status: "[PROVED: kernel]"
+      nanoda:
+        status: "[NOT CLAIMED]"
+        reason: "no external kernel is configured: nanoda (Comparator's supported external_kernels entry, a Rust implementation) is not built here, so no check by an implementation independent of the C++ kernel is claimed"

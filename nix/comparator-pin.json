@@ -1,0 +1,18 @@
+{
+  "rev": "d03acab154d269c06e60e4de7e4cc85deebff94b",
+  "src_hash": "sha256-BOTlqCMjPnLTo5pJ6o5O+Pgw3QIKitdXsEBqBOhWxBc=",
+  "lean4export_rev": "076e8e57707e813375e8f9da8bf989799ace9680",
+  "lean4export_src_hash": "sha256-sy3UivooYm1t1xdXu+/Fcq0x+U0V/6v19i1c/snnfFo=",
+  "lean_toolchain_version": "4.34.0",
+  "kernel_githash": "293d5d0c0c3f3dded4688b3ccd6a33939ac5102b",
+  "lean_toolchain_assets": {
+    "x86_64-linux": {
+      "asset": "linux",
+      "hash": "sha256-yqqYNWCYyF3A/LvSjh7GbznrZVGCmXK3Uv8g4ShrZGs="
+    },
+    "aarch64-linux": {
+      "asset": "linux_aarch64",
+      "hash": "sha256-QLBP23+4SdPIDhDDu+68e3NUttPwdFC5FowhSbQNKoI="
+    }
+  }
+}

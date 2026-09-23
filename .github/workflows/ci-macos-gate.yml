@@ -1,0 +1,151 @@
+# The real proof gate on aarch64-darwin -- candidates, approvals, certificate diff via
+# `bash full-gate.sh --yes` -- not just the package build and extraction replay that
+# ci-macos.yml's `aeneas-prebuilt` does. One job, `aeneas-gate`, on macos-26. Driven through
+# full-gate.sh (never a hardcoded `.#extraction` reference), so a pin that ever loses its darwin
+# asset degrades to the consented from-source build or the `--committed-extraction` pre-check
+# instead of hard-failing on a missing devShell attribute. Deliberately does NOT pass
+# `--recheck`: darwin's recheck is partial by design (Comparator needs Linux's Landlock sandbox)
+# and is covered by ci-macos-recheck.yml.
+#
+# On request only. macOS runners are billed at a multiple of the Linux rate wherever GitHub
+# Actions minutes are metered (a private repository or fork): no macOS job runs on push, pull_request or
+# schedule. `workflow_dispatch` is the only trigger; docs/ci.md's Trigger policy has the full list
+# of on-request workflows and the command that requests each.
+#   gh workflow run ci-macos-gate.yml --ref <branch>
+# Request it whenever an input of the gate changed: the environment (flake.nix, flake.lock, nix/**,
+# rust-toolchain.toml, .github/actions/**), the launcher (full-gate.sh), or the gate and everything
+# it reads (framed_channel/** except tests/** and recheck/**) -- verify.yml's `paths:` list, which
+# runs this same gate on Linux on every such push, is the machine-readable form of that set.
+# `aeneas-gate` runs `bash full-gate.sh --yes` with no `--recheck`, so it never reads anything under
+# framed_channel/recheck/; macOS coverage of that stage is ci-macos-recheck.yml's job.
+#
+# The fresh-clone canary runs this same gate cold on aarch64-darwin when it is dispatched with
+# `-f macos=true`.
+
+name: CI (macOS gate)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Every run is a workflow_dispatch run and gets its own group keyed on github.run_id, so requested
+# runs never cancel each other. The github.ref fallback is inert while dispatch is the only trigger.
+concurrency:
+  group: ci-macos-gate-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  aeneas-gate:
+    name: aeneas gate, aarch64-darwin (full-gate.sh --yes)
+    runs-on: macos-26
+    # Sized like verify.yml's x86_64-linux `verify` job (75 min): this job runs the same full
+    # check.sh --aeneas gate (candidates, approvals, certificate diff), not the lighter
+    # build+replay aeneas-prebuilt does, plus macOS's own cold-build headroom (see docs/ci.md's
+    # Cost section) on top. If the pin's darwin asset is ever missing, full-gate.sh --yes takes
+    # the consented from-source route instead (~30 min, ~12 GiB), which still fits this budget.
+    timeout-minutes: 90
+    steps:
+      - name: Checkout repository
+        id: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # No extra substituter or trust configuration needed: cache.nixos.org is the only
+      # substituter this job uses.
+      - name: Install Nix (DeterminateSystems/nix-installer-action)
+        id: install_nix
+        uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+
+      # Unlike the aarch64-linux legs, a fallback here is expected and documented (see docs/ci.md's
+      # Platform matrix), not a defect: this step warns loudly rather than failing the job, so a
+      # fallback run is visible in the step summary without being a false failure. The real gate
+      # step below still fails the job for real on an actual verification failure -- this step
+      # never swallows that outcome, it only adds context before the gate runs.
+      - name: "full-gate.sh --support-level"
+        id: support_level
+        run: |
+          set -euo pipefail
+          bash full-gate.sh --support-level | tee /tmp/support-level.txt
+          {
+            echo "### aarch64-darwin support level (aeneas-gate)"
+            echo '```'
+            cat /tmp/support-level.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          route="$(sed -n 's/^route=//p' /tmp/support-level.txt)"
+          macos_fallback="$(sed -n 's/^macos_fallback=//p' /tmp/support-level.txt)"
+          if [ "$macos_fallback" = true ] || [ "$route" != prebuilt ]; then
+            echo "::warning::aarch64-darwin is on its fallback chain this run (macos_fallback=$macos_fallback, route=$route) -- see nix/aeneas-pin.json and docs/ci.md's Platform matrix. This is expected/documented when the pin has no darwin asset, not a silent failure."
+          fi
+
+      # Same key as build-and-test.yml's/recheck-kernel's (shared across every leg on this
+      # OS/arch), so any ci-macos.yml `build` run on this toolchain already warmed it.
+      - name: Lean toolchain (restore, verify, self-heal and save ~/.elan)
+        id: lean_toolchain
+        uses: ./.github/actions/lean-toolchain
+        with:
+          shell: build
+
+      # Same path/key shape as verify.yml's and recheck-kernel's lake-bridge entry;
+      # OS/arch-parameterized, so this never shares or evicts a Linux entry.
+      - name: Restore lake-bridge (framed_channel/{lean,aeneas}/.lake without Mathlib's build)
+        id: lake_bridge_restore
+        uses: ./.github/actions/lake-bridge
+        with:
+          mode: restore
+
+      # `.#build` needs no charon/aeneas and works regardless of which route full-gate.sh will
+      # resolve below -- identical rationale to recheck-kernel's own Mathlib-cache step.
+      - name: Mathlib cache (lake exe cache get, 3 attempts, non-fatal)
+        id: mathlib_cache
+        uses: ./.github/actions/mathlib-cache
+        with:
+          shell: build
+          fallback: "full-gate.sh"
+
+      - name: full-gate.sh --yes (aarch64-darwin)
+        id: gate
+        run: |
+          set -euo pipefail
+          bash full-gate.sh --yes
+
+      # Same assertion as verify.yml's aarch64-linux leg: --portable-host blanks only the target
+      # triple on axioms.txt's `lean:` line (the one host-dependent token) before comparing, so a
+      # green step here is evidence that aarch64-darwin reproduces the certificate byte-for-byte
+      # apart from that token. Previously this job ran the gate and stopped, so aarch64-darwin was
+      # the one full-gate system without a freshness assertion.
+      - name: "Certificate freshness (certificate-freshness.sh --portable-host)"
+        id: cert_freshness
+        run: |
+          set -euo pipefail
+          echo "::group::bash framed_channel/scripts/certificate-freshness.sh --portable-host"
+          if ! bash framed_channel/scripts/certificate-freshness.sh --portable-host; then
+            echo "::error::Stale certificate after the aarch64-darwin gate run: something other than the target triple on axioms.txt's lean: line differs from what is committed (see the diff above). If the x86_64-linux leg is green on this commit, that is a cross-architecture reproducibility finding, not a forgotten regeneration."
+            exit 1
+          fi
+          echo "::endgroup::"
+
+      - name: Save lake-bridge
+        id: lake_bridge_save
+        if: ${{ !cancelled() && steps.gate.outcome == 'success' }}
+        uses: ./.github/actions/lake-bridge
+        with:
+          mode: save
+          primary-key: ${{ steps.lake_bridge_restore.outputs.cache-primary-key }}
+          cache-hit: ${{ steps.lake_bridge_restore.outputs.cache-hit }}
+
+      - name: Write step summary
+        if: always()
+        run: |
+          {
+            echo "### aeneas gate, aarch64-darwin"
+            echo "| Step | Detail |"
+            echo "|---|---|"
+            echo "| Lean toolchain (~/.elan) | ${{ steps.lean_toolchain.outcome }} (cache-hit: ${{ steps.lean_toolchain.outputs.cache-hit }}, verified: ${{ steps.lean_toolchain.outputs.verified }}, healed: ${{ steps.lean_toolchain.outputs.healed }}, saved: ${{ steps.lean_toolchain.outputs.saved }}, nixpkgs: ${{ steps.lean_toolchain.outputs.nixpkgs-rev }}) |"
+            echo "| Restore lake-bridge | ${{ steps.lake_bridge_restore.outcome }} (cache-hit: ${{ steps.lake_bridge_restore.outputs.cache-hit }}) |"
+            echo "| Mathlib cache | ${{ steps.mathlib_cache.outcome }} (${{ steps.mathlib_cache.outputs.outcome }}) |"
+            echo "| Certificate freshness (--portable-host) | ${{ steps.cert_freshness.outcome }} |"
+          } >> "$GITHUB_STEP_SUMMARY"

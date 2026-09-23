@@ -1,0 +1,217 @@
+# update-aeneas-pin.yml -- weekly proposal for the Aeneas nightly pin, implementing the
+# "middle rule" (30-day cap) via nix/bump-aeneas-pin.sh. Runs the real algorithm: for each visited
+# candidate it applies (writes nix/aeneas-pin.json, relocks flake.lock, updates
+# framed_channel/aeneas/{lakefile.toml,lake-manifest.json}) and gates it for real
+# (aeneas_rev_coherence, refresh-extraction.sh, refresh-candidates.sh, `check.sh --skip-approvals`)
+# inside the prebuilt `.#extraction` shell -- no charon/aeneas source build, no extra substituter.
+# Approvals is deliberately skipped in this in-job gate: any candidate that moves `charon_rev`
+# stales the recorded `candidates_sha256` regardless of whether the candidate is otherwise good,
+# so it is never a reason to reject one during selection -- re-approval is a maintainer checklist
+# item on the opened PR (see below), never something this workflow's gate itself claims. A
+# candidate the search tried and rejected shows up in the run's `gate_failures` (step summary and
+# PR body); a rejection at the extraction-staleness check means a trusted-model edit is needed and
+# is never made by this workflow -- see docs/development.md's "Pin bump procedure" for the manual
+# adoption path. On a change, it opens a pull request from a `bot/aeneas-pin-<short-sha>` branch
+# using only the repository's own GITHUB_TOKEN. No account, cache or secret is ever required.
+#
+# Required repository setting (a ONE-TIME user step; see docs/ci.md's "Repository settings"):
+# Settings -> Actions -> General -> Workflow permissions -> "Allow GitHub Actions to
+# create and approve pull requests". Without it, the create-pull-request step below fails with a
+# permissions error and no PR is opened; the run's own step summary still records what the
+# algorithm selected.
+#
+# GITHUB_TOKEN limitation: a PR opened with the default GITHUB_TOKEN does NOT start this
+# repository's other pull_request/push workflows (verify.yml, setup-without-nix.yml, ...) on its
+# own. ci-macos.yml is not among them any more: it is on request only (see docs/ci.md's "macOS
+# runs on request only") and never starts on a pull_request event, from any token. Their
+# runs are created but held at "Action required" until a maintainer approves them (observed on
+# update-flake-inputs.yml's first PR). Until then this run's own in-job gate (see
+# nix/bump-aeneas-pin.sh) is the only automated confirmation the PR carries; the maintainer
+# checklist in the PR body has the rest.
+#
+# Cost/flakiness: up to --max-gates (4) real gates may run sequentially in the worst case (an
+# in-window search that fails several candidates before succeeding), each comparable in cost to
+# verify.yml's own ~75-minute budget. `timeout-minutes` below is sized for that worst case but can
+# still be exceeded; a timeout means no PR this week, and the schedule retries next week -- an
+# accepted tradeoff, since a missed week is cheap and forcing a run to finish would risk a rushed
+# gate. No caching is configured here (unlike
+# verify.yml's elan/lake-bridge/lake-recheck caches) since this is a once-a-week job, not a per-push gate --
+# a cold Mathlib/lake-bridge fetch on every run is an accepted simplification.
+#
+# No auto-merge, ever: this workflow only opens a PR. Merging, running full-gate.sh, dispatching
+# ci-macos.yml's aeneas-prebuilt job, regenerating the certificate and re-approving are always a
+# human's own action -- see the PR body's checklist. A human decides what merges, always.
+
+name: Update Aeneas pin
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # weekly, Monday 06:00 UTC
+  workflow_dispatch:
+    inputs:
+      tag:
+        type: string
+        default: ""
+        description: "Report only: force nix/bump-aeneas-pin.sh --tag <this> instead of the automatic search (never applied; see the script's own --tag documentation)"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: update-aeneas-pin-${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  update-aeneas-pin:
+    name: Propose an Aeneas pin bump (middle rule, 30-day cap)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - name: Checkout repository
+        id: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Frees disk for the extraction shell plus up to --max-gates sequential Lean/aeneas build
+      # directories (see verify.yml's own use of this action for the same reason).
+      - name: Free runner disk space (jlumbroso/free-disk-space)
+        id: free_disk
+        uses: jlumbroso/free-disk-space@ceedf095f4ec1a097402bc6bd80831f2e1a6fde6 # v2.0.0
+        with:
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: false
+          docker-images: false
+
+      # No extra substituter or trust configuration needed: cache.nixos.org is the only
+      # substituter this job uses (the prebuilt Aeneas route is fixed-output downloads).
+      - name: Install Nix (DeterminateSystems/nix-installer-action)
+        id: install_nix
+        uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+
+      - name: Configure git identity for the bump commit
+        id: git_identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Run nix/bump-aeneas-pin.sh
+        id: bump
+        env:
+          FORCE_TAG: ${{ inputs.tag }}
+          # The script reads AeneasVerif/aeneas's releases, commit dates and each candidate's
+          # `charon-pin` through `gh api`, which refuses to run in Actions without a token. The
+          # repository's own token suffices: every read is of a public repository.
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ -n "$FORCE_TAG" ]; then
+            echo "::notice::--tag $FORCE_TAG forced (report-only; nix/bump-aeneas-pin.sh never applies a forced tag)"
+            nix develop .#build --command bash nix/bump-aeneas-pin.sh --tag "$FORCE_TAG" | tee /tmp/summary.json
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          set +e
+          nix develop .#extraction --command bash nix/bump-aeneas-pin.sh --max-gates 4 > /tmp/summary.json
+          rc=$?
+          set -e
+          cat /tmp/summary.json
+          if [ "$rc" -ne 0 ]; then
+            echo "::error::nix/bump-aeneas-pin.sh exited $rc; see the log above (no candidate could be selected within budget)"
+            exit "$rc"
+          fi
+          if git diff --quiet -- nix/aeneas-pin.json; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Write step summary
+        if: always()
+        run: |
+          {
+            echo "### Update Aeneas pin"
+            echo '```json'
+            cat /tmp/summary.json 2>/dev/null || echo "(no summary produced -- see the run log)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          # gate_failures is present on every summary object this script emits (including
+          # "already current" and the no-candidate object), so this runs whether or not the pin
+          # changed. Same sed extraction as the PR-body step below, for the same reason (a live
+          # run has been observed to prepend unrelated tool-progress lines before the script's
+          # own final JSON object).
+          summary_json="$(sed -n '/^{/,$p' /tmp/summary.json 2>/dev/null || true)"
+          if [ -n "$summary_json" ] && [ "$(jq -r '(.gate_failures // []) | length' <<< "$summary_json" 2>/dev/null)" != "0" ]; then
+            {
+              echo
+              echo "**Gate failures during this run** (a rejected candidate; not necessarily an error -- see docs/development.md's \"When the search reports a gate failure\"):"
+              jq -r '.gate_failures[] | "- `\(.tag)` failed at: \(.stage)"' <<< "$summary_json"
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning::nix/bump-aeneas-pin.sh's search rejected $(jq -r '.gate_failures | length' <<< "$summary_json") candidate(s) at the gate this run; see the step summary for tag and stage"
+          fi
+
+      - name: Build the PR title/body from the summary JSON
+        if: steps.bump.outputs.changed == 'true'
+        id: pr_body
+        run: |
+          set -euo pipefail
+          # /tmp/summary.json is the redirected stdout of `nix develop .#extraction --command
+          # bash nix/bump-aeneas-pin.sh --max-gates 4` (see the "Run nix/bump-aeneas-pin.sh"
+          # step above). A live run has been observed to prepend unrelated tool-progress lines
+          # (e.g. a lake/cache summary) before the script's own final JSON object, which broke
+          # a naive `jq -r '.field' /tmp/summary.json` with a parse error on the leading
+          # non-JSON line. Extract only from the first line that opens a JSON object onward,
+          # so this step is robust to whatever precedes it in the file.
+          summary_json="$(sed -n '/^{/,$p' /tmp/summary.json)"
+          selected_tag="$(jq -r '.selected.tag' <<< "$summary_json")"
+          branch="$(jq -r '.branch' <<< "$summary_json")"
+          macos_fallback="$(jq -r '.macos_fallback' <<< "$summary_json")"
+          reason="$(jq -r '.reason // ""' <<< "$summary_json")"
+          direction="$(jq -r '.direction' <<< "$summary_json")"
+          distance="$(jq -r '.distance_days' <<< "$summary_json")"
+          short_sha="${selected_tag##*-}"
+          {
+            echo "Automated Aeneas pin bump to \`$selected_tag\` ($branch, direction: $direction, ${distance}d)."
+            echo
+            echo '```json'
+            cat /tmp/summary.json
+            echo '```'
+            echo
+            if [ "$macos_fallback" = "true" ]; then
+              echo "**macOS is on its fallback chain**: no complete release (all three systems) within 30 days of \`$selected_tag\` passed the gate (reason: $reason). aarch64-darwin uses full-gate.sh's per-machine fallback chain until a future bump finds a complete release."
+              echo
+            fi
+            echo "### Maintainer checklist"
+            echo "- [ ] Regenerate the certificate and re-approve any stale item (\`bash framed_channel/approve.sh --review --aeneas\`). This run's own in-job gate skips approvals by design (see this workflow's header comment): \`verify.yml\`'s approvals stage on this PR fails until this item is checked off and the re-approval is committed and pushed."
+            echo "- [ ] Run \`bash full-gate.sh --yes\` locally, and \`bash full-gate.sh --recheck --yes\`."
+            if [ "$macos_fallback" != "true" ]; then
+              echo "- [ ] Dispatch \`ci-macos.yml\`'s \`aeneas-prebuilt\` job (a darwin asset is present at this pin): \`gh workflow run ci-macos.yml --ref bot/aeneas-pin-$short_sha\`."
+            fi
+            echo "- [ ] Approve this PR's held CI runs, and merge only after they and the above are green. This PR was opened with GITHUB_TOKEN, so its runs wait at \"Action required\" for a maintainer -- see this workflow's header comment."
+          } > /tmp/pr-body.md
+          {
+            echo "title=task: bump Aeneas pin to $selected_tag"
+            echo "branch_name=bot/aeneas-pin-$short_sha"
+            echo "commit_message=task: bump Aeneas pin to $selected_tag"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Open the pull request (peter-evans/create-pull-request)
+        if: steps.bump.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: ${{ steps.pr_body.outputs.commit_message }}
+          branch: ${{ steps.pr_body.outputs.branch_name }}
+          delete-branch: true
+          title: ${{ steps.pr_body.outputs.title }}
+          body-path: /tmp/pr-body.md
+          add-paths: |
+            nix/aeneas-pin.json
+            flake.lock
+            framed_channel/aeneas/lakefile.toml
+            framed_channel/aeneas/lake-manifest.json
+            framed_channel/aeneas/FramedChannelAeneas/Extracted/*.lean
+            framed_channel/certificate/candidates.txt

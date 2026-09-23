@@ -1,0 +1,224 @@
+# fresh-clone-canary.yml -- a deliberately cold replay of the documented fresh-clone user path
+# (README.md's Install/Usage sections), failing loudly on any unexpected from-source charon/aeneas
+# build, missing upstream asset, or hash mismatch. The monthly schedule and a plain dispatch run
+# the two Linux legs; the two macOS legs run on request only (`-f macos=true`), because macOS
+# runners are billed at a multiple of the Linux rate wherever GitHub Actions minutes are metered
+# (a private repository or fork) and these are the two longest macOS jobs in the repository:
+#   gh workflow run fresh-clone-canary.yml --ref main                 # Linux legs
+#   gh workflow run fresh-clone-canary.yml --ref main -f macos=true   # all four legs
+#
+# Deliberately inverts every other workflow's cache-restoring posture: this workflow restores and
+# saves NO cache entry of any kind. Proving the cold path -- what a brand-new collaborator's very
+# first clone actually experiences -- is this job's entire point; a warm cache would silently hide
+# exactly the failure mode (a vanished upstream asset, an unreachable substituter, a hash mismatch)
+# this canary exists to catch.
+#
+# Per-OS support level (see full-gate.sh --support-level and docs/ci.md's Platform matrix) decides
+# what each leg does, resolved fresh every run rather than hardcoded here:
+#   - gate=full, route=prebuilt (x86_64-linux, aarch64-linux, and aarch64-darwin when the pin
+#     carries a darwin asset): install.sh -> check.sh --committed-extraction -> full-gate.sh --yes
+#     (plus --recheck when recheck=complete, i.e. the two Linux systems).
+#   - gate=full, route=source|committed-extraction (aarch64-darwin's fallback chain, when the pin
+#     lacks a darwin asset): the same three steps, but full-gate.sh's own resolution takes the
+#     consented from-source build or the committed-extraction pre-check -- reported with a loud
+#     ::warning:: rather than treated as a silent failure (this is documented, expected behavior).
+#   - gate=light-only (x86_64-darwin, no upstream aeneas route at all): install.sh ->
+#     check.sh --committed-extraction only; full-gate.sh is skipped entirely by design.
+#
+# No secrets, no write permission, no PR: this workflow only reports (via the run's own step
+# summary and ::error::/::warning:: annotations).
+
+name: Fresh-clone canary
+
+on:
+  # Monthly: every leg is cold by design (the two macOS timeouts alone allow 225 minutes, which
+  # is why they are opt-in). What this canary guards -- a vanished upstream asset, an unreachable
+  # substituter, a hash mismatch, a moved runner image -- does not change with the repository, so
+  # a push trigger would add nothing; ci-macos-recheck.yml's `no_cache` dispatch is its
+  # counterpart for the kernel replay. See docs/ci.md's Cost section.
+  schedule:
+    - cron: "0 7 1 * *" # monthly, the 1st at 07:00 UTC; Linux legs only
+  workflow_dispatch:
+    inputs:
+      macos:
+        type: boolean
+        default: false
+        description: "Also run the two macOS legs (aarch64-darwin, x86_64-darwin); off by default because macOS minutes are billed at a multiple"
+
+permissions:
+  contents: read
+
+# A single fixed group (never per-ref): this is a schedule/dispatch-only workflow, never triggered
+# by a push or pull request, so there is no "same ref" concept to serialize against.
+concurrency:
+  group: fresh-clone-canary-${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  canary:
+    name: Fresh-clone canary (${{ matrix.system }})
+    # The macOS legs are opt-in (see the header). A job-level `if:` cannot read `matrix`, so the leg
+    # list itself is chosen here: the schedule (where `inputs` is empty) and a plain dispatch get
+    # the two Linux legs, `-f macos=true` gets all four. A leg that is not in the list is never
+    # created, so it costs no runner time. Keep the two Linux entries identical in both lists.
+    #
+    # Per-leg notes (timeout_minutes is the budget, not the expectation):
+    #   x86_64-linux, aarch64-linux (120): cold path, no cache -- install.sh's own warm-up,
+    #     check.sh --committed-extraction, then the full gate plus --recheck
+    #     (comparator/landrun/charon/aeneas all realized cold).
+    #   aarch64-darwin (105): no --recheck here (recheck is never "complete" on this system; see
+    #     full-gate.sh's has_comparator), but a cold macOS full gate is still slower than Linux's
+    #     equivalent -- see docs/ci.md's Cost section for the cold-macOS multiplier.
+    #   x86_64-darwin (120): light shell only -- install.sh's warm-up plus check.sh
+    #     --committed-extraction, no full-gate.sh at all (gate=light-only on this system, by
+    #     design). "Light" names the gate, not the cost: check.sh still does the cold
+    #     bridge-package lake build, which prints nothing while it runs. A 45-minute budget was
+    #     exhausted mid-build on the first run; at 120 minutes the leg has since completed in
+    #     56m52s. Measured against its aarch64-darwin sibling in that same run, this runner is
+    #     slower by well under the "several times" once assumed here: check.sh 48.6 minutes
+    #     against 27.3, install.sh 6.6 against 2.5 -- roughly 1.8x and 2.6x. The budget stays at
+    #     120 minutes even so: the measured 56m52s is one cold observation on a shared runner, not
+    #     a ceiling.
+    strategy:
+      fail-fast: false
+      matrix:
+        include: >-
+          ${{ fromJSON(inputs.macos
+          && '[{"os":"ubuntu-24.04","system":"x86_64-linux","timeout_minutes":120},
+               {"os":"ubuntu-24.04-arm","system":"aarch64-linux","timeout_minutes":120},
+               {"os":"macos-26","system":"aarch64-darwin","timeout_minutes":105},
+               {"os":"macos-15-intel","system":"x86_64-darwin","timeout_minutes":120}]'
+          || '[{"os":"ubuntu-24.04","system":"x86_64-linux","timeout_minutes":120},
+               {"os":"ubuntu-24.04-arm","system":"aarch64-linux","timeout_minutes":120}]') }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: ${{ matrix.timeout_minutes }}
+    steps:
+      - name: Checkout repository
+        id: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Ubuntu runners only -- this action targets Linux; the macOS legs need no equivalent step
+      # (existing macOS jobs in this repository never call it either).
+      - name: Free runner disk space (jlumbroso/free-disk-space)
+        id: free_disk
+        if: startsWith(matrix.os, 'ubuntu')
+        uses: jlumbroso/free-disk-space@ceedf095f4ec1a097402bc6bd80831f2e1a6fde6 # v2.0.0
+        with:
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: false
+          docker-images: false
+
+      # No extra substituter or trust configuration needed: cache.nixos.org is the only
+      # substituter this job uses. install.sh below never installs Nix itself (see its own header
+      # comment), so this step is a prerequisite for it, exactly as a real fresh clone needs.
+      - name: Install Nix (DeterminateSystems/nix-installer-action)
+        id: install_nix
+        uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+
+      # darwin legs only, ahead of install.sh: the stock /bin/bash is 3.2.57 there, and install.sh
+      # and full-gate.sh are run by a user before any Nix shell exists. The same fixture runs on
+      # every ci-macos.yml run; here it guards the canary's own next two steps, so a bash
+      # incompatibility is reported by name instead of as an install.sh or full-gate.sh failure.
+      - name: launcher-compat under /bin/bash (darwin)
+        id: launcher_compat
+        if: startsWith(matrix.os, 'macos')
+        env:
+          LAUNCHER_COMPAT_BASH: /bin/bash
+          LAUNCHER_COMPAT_REQUIRE_DYNAMIC: "1"
+          LAUNCHER_COMPAT_EXPECT_BASH: "3.2."
+        run: /bin/bash framed_channel/tests/launcher-compat/run.sh
+
+      # Step 1 of the documented user path (README.md's Install section, verbatim): checks
+      # prerequisites and warms the light dev shell's caches. No --with-bridge (the ~7 GB
+      # Aeneas/Mathlib fetch): that consent-gated warm-up is exercised by full-gate.sh's own bridge
+      # fetch below on the systems that reach it, not duplicated here.
+      - name: bash install.sh
+        id: install_sh
+        run: |
+          set -euo pipefail
+          bash install.sh
+
+      # Step 2 of the documented user path (README.md's Usage section: the same
+      # `check.sh --committed-extraction` command, here explicitly entered via
+      # `nix develop --command` rather than typed inside an already-entered shell): the light audit
+      # against the committed extraction, no charon/aeneas needed. Ends INCOMPLETE (exit 3) by
+      # design on every system -- any other exit code is a defect (a real FAIL, or an unexpected
+      # PASS without charon/aeneas), mirroring build-and-test.yml's own --core-only assertion.
+      - name: "framed_channel/check.sh --committed-extraction (nix develop, the light default shell)"
+        id: committed_extraction
+        run: |
+          set -euo pipefail
+          echo "::group::nix develop --command bash framed_channel/check.sh --committed-extraction"
+          rc=0
+          nix develop --command bash framed_channel/check.sh --committed-extraction || rc=$?
+          if [ "$rc" -ne 3 ]; then
+            echo "::error::check.sh --committed-extraction exited $rc; it ends INCOMPLETE (exit 3) by design, and any other exit code is a defect"
+            exit 1
+          fi
+          echo "::endgroup::"
+
+      # Resolves this system's support level fresh, every run -- the single machine-readable
+      # source of truth every step below consumes (never a hardcoded per-system branch). Its
+      # key=value stdout lines are written directly into GITHUB_OUTPUT: full-gate.sh's own output
+      # format already matches GITHUB_OUTPUT's file format.
+      - name: "full-gate.sh --support-level"
+        id: support_level
+        run: |
+          set -euo pipefail
+          bash full-gate.sh --support-level | tee /tmp/support-level.txt
+          {
+            echo "### ${{ matrix.system }} support level"
+            echo '```'
+            cat /tmp/support-level.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          while IFS='=' read -r k v; do
+            [ -n "$k" ] && echo "$k=$v" >> "$GITHUB_OUTPUT"
+          done < /tmp/support-level.txt
+          if [ "${{ matrix.system }}" = aarch64-darwin ]; then
+            route="$(sed -n 's/^route=//p' /tmp/support-level.txt)"
+            macos_fallback="$(sed -n 's/^macos_fallback=//p' /tmp/support-level.txt)"
+            if [ "$macos_fallback" = true ] || [ "$route" != prebuilt ]; then
+              echo "::warning::aarch64-darwin is on its fallback chain this run (macos_fallback=$macos_fallback, route=$route) -- see nix/aeneas-pin.json and docs/ci.md's Platform matrix. This is expected/documented, not a silent failure."
+            fi
+          fi
+
+      # Step 3a (gate=light-only, x86_64-darwin only): no upstream aeneas route exists on this
+      # system at all -- full-gate.sh is skipped by design, matching docs/ci.md's Platform matrix.
+      - name: Light shell only (no upstream aeneas route on this system)
+        id: light_only
+        if: steps.support_level.outputs.gate == 'light-only'
+        run: |
+          echo "${{ matrix.system }}: gate=light-only (no upstream aeneas asset or from-source route here, by design). full-gate.sh is skipped; coverage on this leg ends at check.sh --committed-extraction above." >> "$GITHUB_STEP_SUMMARY"
+
+      # Asserts no unexpected from-source build on a fresh, cold clone: mirrors verify.yml's own
+      # "Substituter probe" step, targeted at whichever shell --support-level resolved above.
+      # Skipped on gate=light-only (no shell to probe there).
+      - name: "Substituter probe (heavy_probe against the resolved shell)"
+        id: substituter_probe
+        if: steps.support_level.outputs.gate == 'full'
+        uses: ./.github/actions/substituter-probe
+        with:
+          shell-attr: devShells.${{ matrix.system }}.${{ steps.support_level.outputs.shell }}
+          context: "on a fresh, cold clone"
+
+      # Step 3b (gate=full): the real verification gate, driven through full-gate.sh so a pin that
+      # ever loses an asset for this system degrades to its own documented fallback chain instead
+      # of failing on a missing devShell attribute. --recheck is added only when --support-level
+      # already reports recheck=complete (the two Linux systems today); darwin's recheck is
+      # partial by design and is not requested here (see ci-macos-recheck.yml's recheck-kernel
+      # job for that coverage instead).
+      - name: "full-gate.sh --yes (${{ matrix.system }})"
+        id: gate
+        if: steps.support_level.outputs.gate == 'full'
+        run: |
+          set -euo pipefail
+          args=(--yes)
+          if [ "${{ steps.support_level.outputs.recheck }}" = complete ]; then
+            args+=(--recheck)
+          fi
+          bash full-gate.sh "${args[@]}"

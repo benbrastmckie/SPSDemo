@@ -1,0 +1,33 @@
+# Lake project for the framed_channel worked example.
+#
+# There is deliberately no `require` directive: every module here builds against core Lean and
+# the bundled `Std` alone (`Std.Tactic.BVDecide` for the one bit-vector obligation in
+# `FramedChannel/Model/Crc8/Theorems.lean`). A clean clone therefore needs only the toolchain pinned in
+# `lean-toolchain` -- no Mathlib cache fetch, no network access, no environment variables.
+#
+# If a future module genuinely needs Mathlib, the documented fallback is
+#   [[require]]
+#   name = "mathlib"
+#   git = "https://github.com/leanprover-community/mathlib4"
+#   rev = "v4.31.0"
+# and `../README.md`'s build instructions must then say that the clone needs a cache fetch.
+
+name = "framed_channel"
+license = "Apache-2.0"
+defaultTargets = ["FramedChannel"]
+
+[leanOptions]
+autoImplicit = false
+
+[[lean_lib]]
+name = "FramedChannel"
+globs = ["FramedChannel.+"]
+
+# The statement-only specification (Challenge) library: one module per component, each restating
+# that component's registered theorems with `:= sorry`, in the form Comparator consumes as a
+# Challenge. It is deliberately NOT a default target: `lake build` never builds it, nothing in
+# `FramedChannel` imports it, and `../check.sh` builds it into its own log, where `sorry` is
+# accepted only for declarations the Lean purity check (`FramedChannel/SpecCheck.lean`) confirms.
+[[lean_lib]]
+name = "FramedChannelChallenge"
+globs = ["FramedChannelChallenge.*"]

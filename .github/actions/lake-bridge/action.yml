@@ -1,0 +1,111 @@
+# lake-bridge -- the one place that restores and saves framed_channel/{lean,aeneas}/.lake, minus
+# Mathlib's own build directory, for every job that builds the bridge package (verify.yml's
+# verify/recheck legs, ci-macos-gate.yml's aeneas-gate, ci-macos-recheck.yml's recheck-kernel).
+#
+# Preconditions (the caller's job, in this order):
+#   1. the repository is checked out (the restore step's key reads the four lean-toolchain/
+#      lake-manifest files);
+#   2. for `mode: save`, this same action's own `mode: restore` step has already run in this job,
+#      so `primary-key`/`cache-hit` are its outputs, not hand-computed.
+#
+# Two modes, not one call like `lean-toolchain`: the caller's own build runs BETWEEN restore and
+# save (populating the tree the save step then banks), so this action cannot be a single step the
+# way `lean-toolchain` is.
+#   mode: restore -- `actions/cache/restore`, unconditional in the caller (skip it there via `if:`
+#     when the caller wants a deliberately cold run, e.g. ci-macos-recheck.yml's `no_cache=true`
+#     dispatch input).
+#   mode: save -- `actions/cache/save`, guarded internally on `primary-key` and `cache-hit`, so a
+#     skipped or missed restore, or an exact hit, is a no-op save (never a hand-rolled empty-key
+#     check at every call site). The CALLER still guards this step's own `if:` on its build step's
+#     outcome (`steps.gate.outcome == 'success'` / `steps.recheck.outcome == 'success'`, per job) --
+#     that decision is per-job (which step populated the tree) and stays with the caller.
+#
+# Key: lake-bridge-<epoch>-<os>-<arch>-<hash of the four lean-toolchain/lake-manifest files>
+#   * NO restore-keys: a prefix fallback restores a tree fetched for a DIFFERENT manifest, and a
+#     stale fetched Aeneas checkout is how a correct pin once read as a charon-pin mismatch.
+#   * epoch (`v3`): bump it to abandon every existing entry of this kind at once.
+#   * `hashFiles()` here resolves against GITHUB_WORKSPACE (the checked-out repository), exactly
+#     as it does in a caller's own `run:` step -- a composite action's expression functions are
+#     evaluated by the runner in the calling job's context, not relative to this action's own
+#     directory, so the four relative paths below need no `GITHUB_ACTION_PATH` prefix.
+#
+# Path list, spelled out level by level on purpose (this is duplicated exactly once more, in the
+# save step below -- both copies live in this one file, and that is unavoidable: restore and save
+# must use the identical list, since it is part of the cache version). actions/cache resolves
+# `path` with implicitDescendants off and hands tar the matched entries, so an exclusion only
+# works when no LISTED entry is an ancestor of the excluded one: `aeneas/.lake` plus
+# `!aeneas/.lake/packages/mathlib/.lake` resolves to the single directory `aeneas/.lake`, the
+# exclusion removes nothing, and tar archives Mathlib's 6 GiB build with it (that was
+# lake-bridge-v2: 2.47 GiB per entry). Listing `.lake/*`, dropping `packages`, listing
+# `packages/*`, dropping `mathlib`, listing `mathlib/*` and dropping `mathlib/.lake` keeps
+# Mathlib's sources and .git and leaves its build to `lake exe cache get` (the `mathlib-cache`
+# action). See docs/ci.md ("Cache strategy") for the full budget and key list.
+
+name: lake-bridge
+description: >-
+  Restore or save framed_channel/{lean,aeneas}/.lake (excluding Mathlib's own build directory),
+  keyed on the nixpkgs-independent lean-toolchain/lake-manifest file hashes. Two modes: restore
+  first, save last, with the caller's build in between.
+
+inputs:
+  mode:
+    description: "'restore' or 'save'"
+    required: true
+  primary-key:
+    description: "Save mode only: this same action's own restore-mode 'cache-primary-key' output"
+    required: false
+    default: ""
+  cache-hit:
+    description: "Save mode only: this same action's own restore-mode 'cache-hit' output"
+    required: false
+    default: ""
+
+outputs:
+  cache-hit:
+    description: "Restore mode: 'true' when the exact key was restored"
+    value: ${{ steps.restore.outputs.cache-hit }}
+  cache-primary-key:
+    description: "Restore mode: the computed cache key (pass back in as save mode's primary-key input)"
+    value: ${{ steps.restore.outputs.cache-primary-key }}
+  cache-matched-key:
+    description: "Restore mode: the key that was actually restored"
+    value: ${{ steps.restore.outputs.cache-matched-key }}
+  saved:
+    description: "Save mode: outcome of the save step (success, skipped or failure)"
+    value: ${{ steps.save.outcome }}
+
+runs:
+  using: composite
+  steps:
+    - name: Restore lake-bridge (framed_channel/{lean,aeneas}/.lake without Mathlib's build)
+      id: restore
+      if: inputs.mode == 'restore'
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          framed_channel/lean/.lake
+          framed_channel/aeneas/.lake/*
+          !framed_channel/aeneas/.lake/packages
+          framed_channel/aeneas/.lake/packages/*
+          !framed_channel/aeneas/.lake/packages/mathlib
+          framed_channel/aeneas/.lake/packages/mathlib/*
+          !framed_channel/aeneas/.lake/packages/mathlib/.lake
+        key: lake-bridge-v3-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('framed_channel/lean/lean-toolchain', 'framed_channel/lean/lake-manifest.json', 'framed_channel/aeneas/lean-toolchain', 'framed_channel/aeneas/lake-manifest.json') }}
+
+    # Saved only when the caller's populating step succeeded (its own `if:` on this step) and the
+    # key is non-empty and was not an exact hit: never a no-op save on an exact hit, never a save
+    # after a skipped restore (empty primary-key).
+    - name: Save lake-bridge (skipped on an empty key or an exact hit)
+      id: save
+      if: inputs.mode == 'save' && inputs.primary-key != '' && inputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          framed_channel/lean/.lake
+          framed_channel/aeneas/.lake/*
+          !framed_channel/aeneas/.lake/packages
+          framed_channel/aeneas/.lake/packages/*
+          !framed_channel/aeneas/.lake/packages/mathlib
+          framed_channel/aeneas/.lake/packages/mathlib/*
+          !framed_channel/aeneas/.lake/packages/mathlib/.lake
+        key: ${{ inputs.primary-key }}

@@ -1,0 +1,6 @@
+# fixture: a four-row candidate file in certificate/candidates.txt's format (not generated)
+# columns: lean_name	rust_path	span	visibility	kind	derived	verdict	reason
+framed_channel.ring_buffer.RingBuffer.push	framed_channel::ring_buffer::{impl}::push	src/ring_buffer.rs:80:4-89:5	pub	fn	-	in-subset	-
+framed_channel.ring_buffer.RingBuffer.pop	framed_channel::ring_buffer::{impl}::pop	src/ring_buffer.rs:93:4-102:5	pub	fn	-	in-subset	-
+framed_channel.ring_buffer.Full.Insts.CoreFmtDebug.fmt	framed_channel::ring_buffer::{impl core::fmt::Debug}::fmt	src/ring_buffer.rs:16:9-16:14	pub	trait-impl	derived:Debug	in-subset	-
+-	framed_channel::ring_buffer::{impl}::unsafe_thing	src/ring_buffer.rs:1:0-2:0	pub	fn	-	excluded	unsafe fn; not extracted

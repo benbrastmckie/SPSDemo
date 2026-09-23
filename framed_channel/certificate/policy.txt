@@ -1,0 +1,34 @@
+# framed_channel axiom and shared-proof policy (hand-written; the one place this policy is stated)
+#
+# Read by ../check.sh (the axiom audit and the specification consistency stage) and by
+# ../scripts/comparator-configs.sh (Comparator's permitted_axioms and the flagged row's separate
+# config).
+# No generator writes this file. Changing a row is a deliberate act that belongs in a commit
+# message and in README.md in this directory, never a quiet edit.
+#
+# Rows, one per line, whitespace-separated:
+#
+#   trusted <axiom>
+#       an axiom every record may carry: the trusted set. Nothing outside it may appear in any
+#       axiom record, and it is Comparator's permitted_axioms.
+#
+#   flagged <declaration>
+#       a declaration permitted a compiler-trusting axiom (Lean.ofReduceBool, Lean.trustCompiler,
+#       or its native `bv_decide` helper axiom `<declaration>._native.bv_decide.ax_<n>_<m>`). It is
+#       registered unverified, scores zero, and gets its own Comparator config.
+#
+#   shared-proof <declaration> <reason...>
+#       a registered theorem whose PROOF lives inside the specification's trusted definitions
+#       layer, because a definition a statement mentions is built from it. The statement-only
+#       Challenge library imports it proved rather than restating it; the gate checks that the set
+#       of theorems declared in definitions modules, and the set of non-Challenge theorems any
+#       statement's closure reaches, both equal these rows.
+
+trusted propext
+trusted Classical.choice
+trusted Quot.sound
+
+flagged FramedChannel.Crc8.crc8_step_linear
+
+shared-proof FramedChannel.RingBuffer.push_inv pushBQ builds the invariant subtype BQ from it (Model/RingBuffer/Defs.lean)
+shared-proof FramedChannel.RingBuffer.pop_inv popBQ builds the invariant subtype BQ from it (Model/RingBuffer/Defs.lean)

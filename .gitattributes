@@ -1,0 +1,38 @@
+# Normalize line endings on checkout, independent of any runner's core.autocrlf default.
+#
+# Root cause this file fixes: actions/checkout on a Windows runner (windows-2025) inherits the
+# runner image's core.autocrlf=true, and this repo carried no .gitattributes, so every text
+# file -- including flake.nix -- was checked out with CRLF line endings. A `pkgs.runCommand`
+# derivation embeds its Nix builder shell script literally inside the .nix file, so a
+# CRLF-corrupted flake.nix corrupts that embedded script too, and the derivation's
+# builder failed with exit code 127: "/build/.attr-...: line 1: $'\r': command not found". The
+# same corruption blocks every `nix develop` invocation on `.github/workflows/ci-windows.yml`'s
+# runs (its wsl2-probe job's Probe C and Probe D, and its `build` job's `lake build` step --
+# `lake build` depends on `nix develop .#build`), independent of WSL2 itself: this is a
+# checkout-normalization bug, not a WSL2/Nix capability limit. See `docs/ci.md`'s Windows
+# coverage notes and `docs/setup-without-nix.md`'s Windows section for the evidence trail.
+#
+# `eol=lf` forces LF in the working directory regardless of core.autocrlf/core.eol (see
+# `git help gitattributes`, "eol" attribute) -- it is the fix, not merely a mitigation, and it
+# protects every checkout of this repo, not only ci-windows.yml's: a Windows contributor
+# cloning locally with Git's default autocrlf=true would hit the identical builder failure
+# without this file. A per-workflow `git config --global core.autocrlf false` step before
+# actions/checkout was considered and deliberately not added in addition to this file: it would
+# protect only ci-windows.yml's own checkout, leaving every other entry point (a local Windows
+# clone, a future Windows-runner workflow) exposed to the same bug this file already closes
+# repo-wide.
+* text=auto eol=lf
+
+# Explicit binary declarations for the repository's known non-text assets, so `text=auto`'s
+# content sniffing is never the only thing preventing a corrupting normalization attempt.
+*.pdf -text
+*.png -text
+*.jpg -text
+*.jpeg -text
+*.gif -text
+*.ico -text
+*.woff -text
+*.woff2 -text
+*.ttf -text
+*.otf -text
+*.eot -text

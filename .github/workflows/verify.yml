@@ -1,0 +1,656 @@
+# Verification gate for this repository. README.md's "Verification" badge is GitHub's own status
+# badge for this workflow file (actions/workflows/verify.yml/badge.svg): it reports the latest run
+# of the WHOLE workflow on main, so every leg of both push jobs below (verify, recheck -- each a
+# 2-leg x86_64-linux/aarch64-linux matrix) bears it -- a red independent recheck turns it red,
+# which is the honest reading of "Verification". Renaming this file means updating that badge URL.
+# Runner images are pinned, never `*-latest`: the recheck depends on the runner kernel's Landlock
+# ABI, so an image move is a reviewed change (docs/ci.md's "Runner images"). See
+# docs/ci.md for cache-budget, cost and timeout rationale; docs/development.md for local
+# reproduction of every step below.
+#
+# Jobs (each a `fail-fast: false` matrix over x86_64-linux `ubuntu-24.04` and aarch64-linux
+# `ubuntu-24.04-arm`, both legs driven through `full-gate.sh` rather than a hardcoded
+# `.#extraction`/`.#recheck` reference, so a future pin move that changes a leg's route changes
+# what that leg actually does):
+#   verify   -- runs `full-gate.sh --yes` after a `full-gate.sh --support-level` step that fails
+#            the leg unless the system resolves `gate=full route=prebuilt`, then confirms the
+#            certificate the gate writes is unchanged (`framed_channel/scripts/certificate-freshness.sh`,
+#            a strict `git diff`; the aarch64-linux leg runs it with --portable-host, which ignores
+#            only the target triple on axioms.txt's `lean:` line, the one host-dependent token of
+#            the certificate). The approvals stage is included deliberately, so a stale recorded
+#            approval turns this badge red; see the Verification badge in README.md and
+#            framed_channel/approve.sh.
+#   recheck  -- runs `full-gate.sh --recheck --yes` for real inside the resolved `.#recheck` shell,
+#            which supplies comparator (x86_64-linux and aarch64-linux), the pinned landrun 0.1.17,
+#            and charon/aeneas (see flake.nix). A "Recheck prerequisites" step (both legs) hard-fails
+#            if any of those four tools, or an unusable `systemd-run --user` after the linger step
+#            below, is missing -- a regression, since the shell now supplies them, never a silent
+#            skip. Neither leg is `needs:`-linked to `verify`, so a present-but-broken prerequisite
+#            fails loudly here instead of silently keeping the job green. Sized like `verify`
+#            (free-disk, Mathlib/lake-bridge caches, a 90-minute timeout) because it runs that same
+#            full gate plus the recheck stage; see docs/ci.md's Cost section. See
+#            framed_channel/scripts/lib/recheck-revs.sh. A "Build recheck/ tools" step builds
+#            lean4lean and lean4export first (check.sh does not, and reports their verdicts
+#            NOT-RUN without them), and a "Recheck record is complete" step fails the leg on a
+#            PARTIAL record, which check.sh itself exits 0 on: a green recheck leg means every
+#            verdict but the optional lean4lean-fresh ran. The x86_64-linux leg is CI's producer of
+#            the CANONICAL recheck record: it sets RECHECK_PRODUCER so certificate/recheck.txt's
+#            `produced on:` line names it, and it alone (`if: matrix.arch == 'x86_64'`) uploads
+#            certificate/recheck{.partial,}.txt as the `recheck-record` artifact (always(), even
+#            on failure) so any contributor -- macOS included, where a local `--recheck` can only
+#            ever produce a PARTIAL record -- can adopt a complete one with
+#            `framed_channel/scripts/adopt-recheck.sh` after `gh workflow run verify.yml`. The
+#            aarch64-linux leg carries its own producer string too (byte-identical to
+#            `adopt-recheck.sh`'s CI_PRODUCER_2), but is not the leg CI's own adopt flow expects.
+#            See framed_channel/certificate/README.md and docs/development.md.
+#
+# No Nix store cache in any gate or recheck job: cache.nixos.org already serves every path this
+# flake pulls from a substituter, charon/aeneas come from the sha256-pinned upstream release
+# tarball driven by the exact rust-overlay nightly the release names (both fixed-output
+# downloads: no substituter, no account, no token), and Mathlib's own cache
+# (`lake exe cache get`) serves its oleans faster and for free. See docs/ci.md's Cache strategy
+# for the full budget and key list, and nix/aeneas-prebuilt.nix's header for the provenance.
+#
+# Cache policy in one place (docs/ci.md's Cache strategy has the rationale): ~/.elan is owned by
+# the lean-toolchain composite action (exact key carrying the nixpkgs rev, verified, self-healed,
+# saved on a verified miss); every .lake key is exact-match only -- no `restore-keys` anywhere in
+# this file -- because a prefix fallback restores a tree fetched for a DIFFERENT manifest, and a
+# stale fetched Aeneas checkout is how a correct pin once read as a charon-pin mismatch. The `vN`
+# in each key is the epoch segment: bump it to abandon every existing entry of that kind.
+#
+# lake-bridge's path list is spelled out level by level on purpose. actions/cache resolves `path`
+# with implicitDescendants off and hands tar the matched entries, so an exclusion only works when
+# no LISTED entry is an ancestor of the excluded one: `aeneas/.lake` plus
+# `!aeneas/.lake/packages/mathlib/.lake` resolves to the single directory `aeneas/.lake`, the
+# exclusion removes nothing, and tar archives Mathlib's 6 GiB build with it (that was
+# lake-bridge-v2: 2.47 GiB per entry). Listing `.lake/*`, dropping `packages`, listing
+# `packages/*`, dropping `mathlib`, listing `mathlib/*` and dropping `mathlib/.lake` keeps
+# Mathlib's sources and .git and leaves its build to `lake exe cache get`. Restore and save must
+# use the identical list (it is part of the cache version). ci-macos-gate.yml and
+# ci-macos-recheck.yml carry the same list.
+
+name: Verification
+
+on:
+  # Gate on changes: every leg of both push jobs runs the same gate (recheck's two legs add the
+  # recheck stage on top), so one workflow-level list of that gate's real inputs serves them all:
+  #   - the environment: flake.nix, flake.lock, nix/** (the Aeneas pin, the prebuilt derivation,
+  #     comparator, landrun, lean-toolchain-bin), rust-toolchain.toml, .github/actions/**;
+  #   - the launcher every leg enters through: full-gate.sh;
+  #   - the gate and everything it reads: framed_channel/** -- check.sh, approve.sh, scripts/**,
+  #     the Rust sources, both Lake packages, certificate/** and recheck/** -- except
+  #     framed_channel/tests/**, which check.sh never reads (most of the fixtures run in
+  #     build-and-test.yml, called by ci.yml on every push; launcher-compat runs directly in
+  #     ci.yml's hygiene job);
+  #   - this file.
+  # One input of the gate lies outside the list: check.sh's license-header stage scans every
+  # tracked source file. ci.yml's hygiene job runs that same check
+  # (framed_channel/scripts/check-spdx.sh) on every push, so a header regression in a fixture or
+  # any other file outside this list is still caught on the push that introduces it. A docs-,
+  # fixture- or other-workflow-only push therefore runs ci.yml alone, rather than this gate --
+  # ci-macos.yml is on request only now (see docs/ci.md's "macOS runs on request only") and no
+  # longer runs on any push. ci-macos-gate.yml documents the same complete input list, less
+  # framed_channel/recheck/** (its job never passes --recheck, so it never reads that tree; see its
+  # own header comment), though that list no longer gates a push trigger for it either -- both are
+  # workflow_dispatch only; when the gate starts reading a new top-level path, add it to all of
+  # them regardless, or the maintenance rule this list exists for silently stops holding.
+  push:
+    branches: ["main"]
+    paths:
+      - "flake.nix"
+      - "flake.lock"
+      - "nix/**"
+      - "rust-toolchain.toml"
+      - "full-gate.sh"
+      - "framed_channel/**"
+      - "!framed_channel/tests/**"
+      - ".github/workflows/verify.yml"
+      - ".github/actions/**"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "flake.nix"
+      - "flake.lock"
+      - "nix/**"
+      - "rust-toolchain.toml"
+      - "full-gate.sh"
+      - "framed_channel/**"
+      - "!framed_channel/tests/**"
+      - ".github/workflows/verify.yml"
+      - ".github/actions/**"
+  # A bare manual-dispatch trigger, no inputs: docs/development.md documents this as the way to
+  # run the whole gate on demand outside a filtered push/pull_request.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A workflow_dispatch run (a manual full run) gets its own unique group keyed on
+# github.run_id, so it never cancels, and is never cancelled by, a push/pull_request run on the
+# same ref; push/pull_request runs on the same ref still cancel-in-progress each other as before.
+concurrency:
+  group: verify-${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # x86_64-linux / aarch64-linux full-gate legs (2-leg matrix; aarch64-linux is top priority, see
+  # docs/ci.md's Platform matrix). Both legs are driven through `full-gate.sh --yes` rather than a
+  # hardcoded shell reference, so a future pin move that changes either leg's route changes what
+  # the job actually does. The `--support-level` step below hard-fails if a leg ever silently
+  # degraded off the prebuilt route -- a route=prebuilt leg reporting anything else is a defect,
+  # not a pass, on EITHER leg now (previously only the aarch64-linux leg was checked; x86_64-linux
+  # gains this assertion in this merge). The approvals stage is included deliberately
+  # (full-gate.sh execs into check.sh, which runs it), so a stale recorded approval turns this
+  # badge red; see the Verification badge in README.md and framed_channel/approve.sh.
+  # aarch64-linux additionally enables certificate-freshness's `--portable-host`, which ignores
+  # only the target triple on axioms.txt's `lean:` line, the one host-dependent token of the
+  # certificate. `fail-fast: false`: today's two independent jobs never cancelled each other, and
+  # that must be preserved. Part of the workflow's status badge like every other push job here.
+  verify:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            system: x86_64-linux
+            runner: ubuntu-24.04
+            name: "Verification gate, x86_64-linux (full-gate.sh --yes)"
+            freshness_args: ""
+            freshness_message: "The gate ran but did not commit its own output. Refresh locally with: nix develop .#extraction --command bash framed_channel/check.sh --aeneas, then commit the regenerated files under framed_channel/certificate."
+          - arch: aarch64
+            system: aarch64-linux
+            runner: ubuntu-24.04-arm
+            name: "Verification gate, aarch64-linux (full-gate.sh --yes)"
+            freshness_args: "--portable-host"
+            freshness_message: "something other than the target triple on axioms.txt's lean: line differs from what is committed (see the diff above). If the x86_64-linux leg is green on this commit, that is a cross-architecture reproducibility finding, not a forgotten regeneration."
+    steps:
+      - name: Checkout repository
+        id: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Frees disk for the resolved extraction shell (about 4.4 GiB on x86_64-linux: the `build`
+      # closure plus the prebuilt aeneas/MIR-sysroot packages -- see docs/ci.md's Cache strategy
+      # for the figures) plus the Lean/aeneas build directories; large-packages and docker-images
+      # are skipped as not worth their time here. Identical options on both legs (diffed against
+      # the pre-merge jobs before this matrix was written).
+      - name: Free runner disk space (jlumbroso/free-disk-space)
+        id: free_disk
+        uses: jlumbroso/free-disk-space@ceedf095f4ec1a097402bc6bd80831f2e1a6fde6 # v2.0.0
+        with:
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: false
+          docker-images: false
+
+      # No extra substituter or trust configuration needed: cache.nixos.org is the only
+      # substituter this job uses.
+      - name: Install Nix (DeterminateSystems/nix-installer-action)
+        id: install_nix
+        uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+
+      # Fails fast, naming the offending path, if a source build of charon or aeneas would run --
+      # that takes ~30 min/~12 GiB no hosted runner budgets for by default. See
+      # .github/actions/substituter-probe's header for the shared classification logic. Redundant
+      # with (never a substitute for) full-gate.sh's own internal heavy_probe call below -- kept
+      # for step-sequence parity and this step's own summary observability.
+      - name: Substituter probe (devShells.${{ matrix.system }}.extraction)
+        id: substituter_probe
+        uses: ./.github/actions/substituter-probe
+        with:
+          shell-attr: devShells.${{ matrix.system }}.extraction
+
+      # A strengthening for x86_64-linux (previously unchecked): both legs now hard-fail if
+      # full-gate.sh ever silently degrades off the prebuilt route.
+      - name: "full-gate.sh --support-level"
+        id: support_level
+        run: |
+          set -euo pipefail
+          bash full-gate.sh --support-level | tee /tmp/support-level.txt
+          {
+            echo "### ${{ matrix.system }} support level"
+            echo '```'
+            cat /tmp/support-level.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          gate="$(sed -n 's/^gate=//p' /tmp/support-level.txt)"
+          route="$(sed -n 's/^route=//p' /tmp/support-level.txt)"
+          if [ "$gate" != full ] || [ "$route" != prebuilt ]; then
+            echo "::error::${{ matrix.system }} resolved gate=$gate route=$route; expected gate=full route=prebuilt on this top-priority leg (a silent degradation here is a defect, not a pass)"
+            exit 1
+          fi
+
+      # Shared with the recheck job and ci.yml's ubuntu-24.04 leg (one key, one action) on
+      # x86_64-linux; keyed on runner.os/runner.arch, so the aarch64-linux leg never collides with
+      # it. Must stay ahead of the Mathlib cache step: that step's retry loop is for the network,
+      # not for a lake that cannot execute.
+      - name: Lean toolchain (restore, verify, self-heal and save ~/.elan)
+        id: lean_toolchain
+        uses: ./.github/actions/lean-toolchain
+        with:
+          shell: extraction
+
+      - name: Restore lake-bridge (framed_channel/{lean,aeneas}/.lake without Mathlib's build)
+        id: lake_bridge_restore
+        uses: ./.github/actions/lake-bridge
+        with:
+          mode: restore
+
+      # The support-level check above already confirmed route=prebuilt, so `.#extraction` is
+      # guaranteed to exist for this run.
+      - name: Mathlib cache (lake exe cache get, 3 attempts, non-fatal)
+        id: mathlib_cache
+        uses: ./.github/actions/mathlib-cache
+        with:
+          shell: extraction
+          fallback: "full-gate.sh"
+
+      - name: "full-gate.sh --yes (${{ matrix.system }})"
+        id: gate
+        run: |
+          set -euo pipefail
+          bash full-gate.sh --yes
+
+      # x86_64-linux compares the committed certificate against a byte-for-byte regeneration.
+      # aarch64-linux additionally passes --portable-host, which blanks only the target triple on
+      # axioms.txt's `lean:` line (the one host-dependent token) before comparing: the Lean
+      # version, commit and every other generated byte must still equal what is committed, so a
+      # green step there is evidence that aarch64-linux reproduces the certificate.
+      - name: "Certificate freshness (certificate-freshness.sh ${{ matrix.freshness_args }})"
+        id: cert_freshness
+        run: |
+          set -euo pipefail
+          echo "::group::bash framed_channel/scripts/certificate-freshness.sh ${{ matrix.freshness_args }}"
+          if ! bash framed_channel/scripts/certificate-freshness.sh ${{ matrix.freshness_args }}; then
+            if [ "${{ matrix.arch }}" = x86_64 ]; then
+              stale="$(git diff --name-only -- framed_channel/certificate | tr '\n' ' ')"
+              echo "::error::Stale certificate file(s) after the gate run: ${stale}. ${{ matrix.freshness_message }}"
+            else
+              echo "::error::Stale certificate after the ${{ matrix.system }} gate run: ${{ matrix.freshness_message }}"
+            fi
+            exit 1
+          fi
+          echo "::endgroup::"
+
+      # Saved only when the gate step itself succeeded and the run was not cancelled: never a
+      # partial .lake. The action's own primary-key/cache-hit guard skips a no-op save on an
+      # exact hit or an empty key.
+      - name: Save lake-bridge
+        id: lake_bridge_save
+        if: ${{ !cancelled() && steps.gate.outcome == 'success' }}
+        uses: ./.github/actions/lake-bridge
+        with:
+          mode: save
+          primary-key: ${{ steps.lake_bridge_restore.outputs.cache-primary-key }}
+          cache-hit: ${{ steps.lake_bridge_restore.outputs.cache-hit }}
+
+      - name: Write step summary
+        if: always()
+        run: |
+          {
+            echo "### Verification gate, ${{ matrix.system }}"
+            echo "| Step | Detail |"
+            echo "|---|---|"
+            echo "| Lean toolchain (~/.elan) | ${{ steps.lean_toolchain.outcome }} (cache-hit: ${{ steps.lean_toolchain.outputs.cache-hit }}, verified: ${{ steps.lean_toolchain.outputs.verified }}, healed: ${{ steps.lean_toolchain.outputs.healed }}, saved: ${{ steps.lean_toolchain.outputs.saved }}, nixpkgs: ${{ steps.lean_toolchain.outputs.nixpkgs-rev }}) |"
+            echo "| Restore lake-bridge | ${{ steps.lake_bridge_restore.outcome }} (cache-hit: ${{ steps.lake_bridge_restore.outputs.cache-hit }}, restored key: ${{ steps.lake_bridge_restore.outputs.cache-matched-key }}) |"
+            echo "| Mathlib cache | ${{ steps.mathlib_cache.outcome }} (${{ steps.mathlib_cache.outputs.outcome }}) |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # x86_64-linux / aarch64-linux independent-recheck legs (2-leg matrix). Both legs run
+  # `full-gate.sh --recheck --yes` for real, replaying the proofs with lean4lean and feeding
+  # Comparator through lean4export. Deliberately not `needs:`-linked to `verify`, so a
+  # present-but-broken prerequisite fails loudly here instead of silently keeping the job green.
+  # Sized like `verify` (free-disk, Mathlib/lake-bridge caches, a 90-minute timeout) because it
+  # runs that same full gate plus the recheck stage on top; see docs/ci.md's Cost section. See
+  # framed_channel/scripts/lib/recheck-revs.sh. A "Build recheck/ tools" step builds lean4lean and
+  # lean4export first (check.sh does not, and reports their verdicts NOT-RUN without them), and a
+  # "Recheck prerequisites" step (both legs now -- previously x86_64-linux only, aarch64-linux
+  # gains this coverage in this merge) hard-fails if the `.#recheck` shell is missing comparator,
+  # landrun, charon, aeneas, a usable `systemd-run --user`, or Landlock enforcement, since the
+  # shell now supplies every one of them: absence here is a regression, never an expected skip. A
+  # "Recheck record is complete" step fails the job on a PARTIAL record, which check.sh itself
+  # exits 0 on: a green leg means every verdict but the optional lean4lean-fresh ran. The
+  # x86_64-linux leg is CI's producer of the CANONICAL recheck record: it sets RECHECK_PRODUCER so
+  # certificate/recheck.txt's `produced on:` line names it, and is the only leg that uploads
+  # certificate/recheck{.partial,}.txt as the `recheck-record` artifact (always(), even on
+  # failure) so any contributor -- macOS included, where a local `--recheck` can only ever produce
+  # a PARTIAL record -- can adopt a complete one with `framed_channel/scripts/adopt-recheck.sh`
+  # after `gh workflow run verify.yml`. Both legs' producer strings (`matrix.producer`) are kept
+  # BYTE-IDENTICAL to `adopt-recheck.sh`'s CI_PRODUCER_1/CI_PRODUCER_2, even though only the
+  # x86_64-linux record is adopted. See framed_channel/certificate/README.md and
+  # docs/development.md. `fail-fast: false`: today's two independent jobs never cancelled each
+  # other, and that must be preserved.
+  recheck:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            system: x86_64-linux
+            runner: ubuntu-24.04
+            name: "Independent recheck, x86_64-linux (full-gate.sh --recheck --yes)"
+            producer: "verify.yml recheck job"
+            artifact_suffix: ""
+          - arch: aarch64
+            system: aarch64-linux
+            runner: ubuntu-24.04-arm
+            name: "Independent recheck, aarch64-linux (full-gate.sh --recheck --yes)"
+            producer: "verify.yml recheck-arm job"
+            artifact_suffix: "-arm"
+    steps:
+      - name: Checkout repository
+        id: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Frees disk for the .#recheck shell (comparator, lean-toolchain-bin, landrun, charon,
+      # aeneas) plus the Lean/aeneas build directories -- identical rationale to `verify`'s step.
+      # Identical options on both legs (diffed against the pre-merge jobs before this matrix was
+      # written).
+      - name: Free runner disk space (jlumbroso/free-disk-space)
+        id: free_disk
+        uses: jlumbroso/free-disk-space@ceedf095f4ec1a097402bc6bd80831f2e1a6fde6 # v2.0.0
+        with:
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: false
+          docker-images: false
+
+      # Same installer settings as the gate's Install Nix step: no extra substituter or trust
+      # configuration needed.
+      - name: Install Nix (DeterminateSystems/nix-installer-action)
+        id: install_nix
+        uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+
+      # Fails fast, naming the offending path, if a source build of charon or aeneas would run
+      # for THIS shell -- .#recheck, not .#extraction, since it now carries them too (see
+      # flake.nix). See .github/actions/substituter-probe's header for the shared classification
+      # logic (Comparator/lean-toolchain-bin are PROBE_MINOR, a ::notice::, never an ::error::).
+      - name: Substituter probe (devShells.${{ matrix.system }}.recheck)
+        id: substituter_probe
+        uses: ./.github/actions/substituter-probe
+        with:
+          shell-attr: devShells.${{ matrix.system }}.recheck
+
+      # A strengthening for x86_64-linux (previously unchecked): both legs now hard-fail if
+      # full-gate.sh ever silently degrades off the prebuilt route, or resolves anything but a
+      # complete recheck.
+      - name: "full-gate.sh --support-level"
+        id: support_level
+        run: |
+          set -euo pipefail
+          bash full-gate.sh --support-level | tee /tmp/support-level.txt
+          {
+            echo "### ${{ matrix.system }} support level"
+            echo '```'
+            cat /tmp/support-level.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          gate="$(sed -n 's/^gate=//p' /tmp/support-level.txt)"
+          route="$(sed -n 's/^route=//p' /tmp/support-level.txt)"
+          recheck="$(sed -n 's/^recheck=//p' /tmp/support-level.txt)"
+          if [ "$gate" != full ] || [ "$route" != prebuilt ]; then
+            echo "::error::${{ matrix.system }} resolved gate=$gate route=$route; expected gate=full route=prebuilt on this top-priority leg (a silent degradation here is a defect, not a pass)"
+            exit 1
+          fi
+          if [ "$recheck" != complete ]; then
+            echo "::error::${{ matrix.system }} resolved recheck=$recheck; expected recheck=complete (this system has Comparator support -- see has_comparator in full-gate.sh). A regression here is a defect, not an expected partial."
+            exit 1
+          fi
+
+      # Identical key to the gate's elan entry, so it is shared -- the two jobs may race to
+      # populate it concurrently, which is harmless (actions/cache tolerates a duplicate-key save
+      # by simply not overwriting, and both racers have just verified the same toolchain).
+      - name: Lean toolchain (restore, verify, self-heal and save ~/.elan)
+        id: lean_toolchain
+        uses: ./.github/actions/lean-toolchain
+        with:
+          shell: recheck
+
+      # Identical key and path to the gate's lake-bridge entry, so it is shared (same
+      # concurrent-saver race as ~/.elan above, equally harmless) -- the recheck stage runs the
+      # full gate first, so this job needs the bridge package build directory exactly like
+      # `verify` does.
+      - name: Restore lake-bridge (framed_channel/{lean,aeneas}/.lake without Mathlib's build)
+        id: lake_bridge_restore
+        uses: ./.github/actions/lake-bridge
+        with:
+          mode: restore
+
+      # Only this leg's own package.
+      - name: Restore lake-recheck (framed_channel/recheck/.lake)
+        id: lake_recheck_restore
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: framed_channel/recheck/.lake
+          key: lake-recheck-v3-${{ runner.os }}-${{ runner.arch }}-${{ steps.lean_toolchain.outputs.nixpkgs-rev }}-${{ hashFiles('framed_channel/recheck/lean-toolchain', 'framed_channel/recheck/lake-manifest.json') }}
+
+      # The support-level check above already confirmed route=prebuilt, so `.#recheck` is
+      # guaranteed to exist for this run.
+      - name: Mathlib cache (lake exe cache get, 3 attempts, non-fatal)
+        id: mathlib_cache
+        uses: ./.github/actions/mathlib-cache
+        with:
+          shell: recheck
+          fallback: "full-gate.sh --recheck"
+
+      # check.sh --recheck replays the proofs with lean4lean and feeds Comparator through
+      # lean4export, and it does not build either tool: without them it reports every such verdict
+      # NOT-RUN, writes a PARTIAL record and still exits 0. The tools are built here, exactly as
+      # framed_channel/recheck/README.md documents, in the same shell the recheck runs in.
+      - name: Build recheck/ tools (lean4lean, lean4export)
+        id: build_recheck_tools
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/recheck-diag"
+          nix develop .#recheck --command bash -c 'cd framed_channel/recheck && lake build lean4lean/lean4lean lean4export/lean4export' 2>&1 | tee "$RUNNER_TEMP/recheck-diag/build-recheck-tools.log"
+
+      # Enables a real user systemd session on the hosted runner: check.sh --recheck's
+      # `systemd-run --user` prerequisite needs a running --user manager, which a fresh runner
+      # login does not have by default (no lingering session outside an interactive login).
+      # Without this, recheck_systemd_user_usable (framed_channel/scripts/lib/recheck-revs.sh)
+      # reports unusable and the step below fails loudly rather than silently skipping.
+      - name: Enable user systemd session (loginctl enable-linger)
+        id: enable_linger
+        run: |
+          set -euo pipefail
+          sudo loginctl enable-linger "$(id -u -n)"
+          for _ in $(seq 1 30); do
+            [ -S "/run/user/$(id -u)/bus" ] && break
+            sleep 1
+          done
+          if [ ! -S "/run/user/$(id -u)/bus" ]; then
+            echo "::error::/run/user/$(id -u)/bus never appeared after loginctl enable-linger" >&2
+            exit 1
+          fi
+          echo "XDG_RUNTIME_DIR=/run/user/$(id -u)" >> "$GITHUB_ENV"
+
+      # The .#recheck shell now supplies comparator, the pinned landrun, and charon/aeneas (see
+      # flake.nix), so absence of any of them here is a regression, not an expected absence on a
+      # hosted runner -- both that and an unusable `systemd-run --user` are hard failures. Landrun
+      # not enforcing Landlock remains a hard failure too. Lifted out of the gate step into its
+      # own step so it runs identically on BOTH legs (previously x86_64-linux only; aarch64-linux
+      # gains this coverage in this merge).
+      - name: Recheck prerequisites (comparator, landrun, charon, aeneas, systemd-run --user, Landlock enforced)
+        id: recheck_prereqs
+        run: |
+          set -euo pipefail
+          # The single-quoted body below is intentional: its `$` expansions must happen inside
+          # the nested `bash -c`, not in this outer script.
+          # shellcheck disable=SC2016
+          nix develop .#recheck --command bash -c '
+            set -euo pipefail
+            . framed_channel/scripts/lib/recheck-revs.sh
+            recheck_tool_paths
+
+            missing=""
+            [ -n "$RECHECK_COMPARATOR" ] || missing="${missing}comparator not on PATH; "
+            [ -n "$RECHECK_LANDRUN" ] || missing="${missing}landrun not on PATH; "
+            command -v charon > /dev/null 2>&1 || missing="${missing}charon not on PATH; "
+            command -v aeneas > /dev/null 2>&1 || missing="${missing}aeneas not on PATH; "
+            if ! command -v systemd-run > /dev/null 2>&1 || ! recheck_systemd_user_usable; then
+              missing="${missing}systemd-run --user not usable; "
+            fi
+
+            if [ -n "$missing" ]; then
+              echo "::error::${missing%; } -- the .#recheck shell now supplies every --recheck prerequisite, so absence here is a regression, not an expected skip."
+              exit 1
+            fi
+
+            if ! recheck_landlock_enforced; then
+              echo "::error::landrun is on PATH but does not enforce Landlock here (a write under --ro / succeeded); this is a regression, not an absence, so the job fails rather than silently skipping."
+              exit 1
+            fi
+          '
+
+      # Named so certificate/recheck.txt's `produced on:` line identifies this leg as the
+      # producer of the canonical record (framed_channel/scripts/lib/recheck-revs.sh's
+      # recheck_produced_on; framed_channel/check.sh --recheck reads it).
+      - name: "full-gate.sh --recheck --yes (${{ matrix.system }})"
+        id: recheck
+        env:
+          RECHECK_PRODUCER: "CI: ${{ matrix.producer }}"
+          # check.sh copies every recheck log here before its work directory is removed; uploaded
+          # by the diagnostics steps below when the job fails.
+          RECHECK_DIAG_DIR: ${{ runner.temp }}/recheck-diag
+        run: |
+          set -euo pipefail
+          bash full-gate.sh --recheck --yes
+
+      # A green recheck must mean the recheck ran. check.sh --recheck exits 0 on a PARTIAL record
+      # (it is the expected outcome on macOS), so this job asserts completeness itself: every
+      # verdict except the optional lean4lean-fresh line must have run on this system, which
+      # check.sh records as `record: complete` in certificate/recheck.txt and as a
+      # certificate/recheck.partial.txt otherwise.
+      - name: Recheck record is complete (no NOT-RUN outside lean4lean-fresh)
+        id: record_complete
+        env:
+          RECHECK_PRODUCER_NAME: ${{ matrix.producer }}
+        run: |
+          set -euo pipefail
+          cert=framed_channel/certificate
+          if [ -f "$cert/recheck.partial.txt" ]; then
+            sed -n 's/^# PARTIAL RECORD/PARTIAL RECORD/p; /NOT-RUN/p' "$cert/recheck.partial.txt"
+            echo "::error::check.sh --recheck wrote a PARTIAL record ($cert/recheck.partial.txt): at least one verdict that runs on this system was NOT-RUN. This job is CI's producer of the complete record, so a partial one is a failure here, not a skip."
+            exit 1
+          fi
+          if ! grep -qx 'record: complete' "$cert/recheck.txt"; then
+            echo "::error::$cert/recheck.txt does not say 'record: complete' after check.sh --recheck."
+            exit 1
+          fi
+          if ! grep -q "^produced on: .*${RECHECK_PRODUCER_NAME}" "$cert/recheck.txt"; then
+            echo "::error::$cert/recheck.txt was not written by this run (its 'produced on:' line does not name '${RECHECK_PRODUCER_NAME}'): $(sed -n 's/^produced on: //p' "$cert/recheck.txt")"
+            exit 1
+          fi
+          sed -n '/^produced on:/p; /^record:/p' "$cert/recheck.txt"
+
+      # always(): the record is the point of this leg even when the gate above fails (a FAIL
+      # verdict, or a stage before the recheck stage failing, can each still leave a partial or
+      # absent record worth inspecting). Exactly one of the two paths is written by check.sh
+      # --recheck (see framed_channel/check.sh and certificate-identity.sh's `record: complete`
+      # semantics); if-no-files-found: warn tolerates whichever one check.sh did not write, and
+      # also a run where the gate failed before the recheck stage ran at all (neither file
+      # written). 14 days is enough for a contributor to adopt the record with
+      # framed_channel/scripts/adopt-recheck.sh before it expires. x86_64-linux ONLY: this is the
+      # one leg CI's own adopt-recheck.sh flow expects (see the job's own header comment above).
+      - name: Upload recheck record
+        id: upload_record
+        if: always() && matrix.arch == 'x86_64'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: recheck-record
+          path: |
+            framed_channel/certificate/recheck.txt
+            framed_channel/certificate/recheck.partial.txt
+          if-no-files-found: warn
+          retention-days: 14
+
+      # One failing run must yield everything needed to root-cause it: the record (complete or
+      # partial), every Comparator room log and landrun-shim log, the bridge pre-flight's stderr,
+      # the kernel replay's per-module logs, the tools build log, the kernel and its Landlock ABI
+      # as landrun reports it, and where the cached .lake bytes are. `set +e`: a diagnostics step
+      # must never be the reason a job is red. Identical on both legs (previously two verbatim
+      # copies; merged here into one).
+      - name: Collect recheck diagnostics (on failure)
+        id: collect_diag
+        if: ${{ failure() }}
+        run: |
+          set +e
+          d="$RUNNER_TEMP/recheck-diag"
+          mkdir -p "$d"
+          cp framed_channel/certificate/recheck.txt framed_channel/certificate/recheck.partial.txt "$d/" 2> /dev/null
+          {
+            echo "## uname -a"; uname -a
+            echo "## /sys/kernel/security/lsm"; cat /sys/kernel/security/lsm 2> /dev/null; echo
+            echo "## landrun strict-mode probe (its refusal names the kernel's Landlock ABI)"
+            # The single-quoted body is intentional: it expands inside the nested bash.
+            # shellcheck disable=SC2016
+            nix develop .#recheck --command bash -c 'landrun --version; landrun --ro / --ldd --add-exec -- "$(command -v true)"; echo "exit $?"' 2>&1
+            echo "## systemctl --user status"; systemctl --user --no-pager status 2>&1 | head -20
+            echo "## df -h"; df -h / /tmp "$RUNNER_TEMP" 2>&1
+          } > "$d/environment.txt" 2>&1
+          {
+            for t in framed_channel/lean/.lake framed_channel/aeneas/.lake framed_channel/recheck/.lake; do
+              [ -d "$t" ] || { echo "absent: $t"; continue; }
+              echo "## du -sh $t"; du -sh "$t"
+              echo "## du -h --max-depth=3 $t (largest 40)"; du -h --max-depth=3 "$t" | sort -rh | head -40
+            done
+            [ -d framed_channel/aeneas/.lake/packages/mathlib/.lake ] && { echo "## Mathlib's build directory (must NOT be in a lake-bridge entry)"; du -sh framed_channel/aeneas/.lake/packages/mathlib/.lake; }
+          } > "$d/lake-du.txt" 2>&1
+          cat "$d/environment.txt"
+          cat "$d/lake-du.txt"
+          ls -la "$d" "$d/configs" 2> /dev/null
+          exit 0
+
+      # Diagnostics artifact name carries `${{ matrix.artifact_suffix }}` (`""` / `"-arm"`), so
+      # the two legs' uploads never collide.
+      - name: Upload recheck diagnostics (on failure)
+        id: upload_diag
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: recheck-diagnostics${{ matrix.artifact_suffix }}
+          path: ${{ runner.temp }}/recheck-diag
+          if-no-files-found: warn
+          retention-days: 14
+
+      # Same outcome-based save discipline as the gate; see its save step's comment.
+      - name: Save lake-bridge
+        id: lake_bridge_save
+        if: ${{ !cancelled() && steps.recheck.outcome == 'success' }}
+        uses: ./.github/actions/lake-bridge
+        with:
+          mode: save
+          primary-key: ${{ steps.lake_bridge_restore.outputs.cache-primary-key }}
+          cache-hit: ${{ steps.lake_bridge_restore.outputs.cache-hit }}
+
+      - name: Save lake-recheck
+        id: lake_recheck_save
+        if: ${{ !cancelled() && steps.recheck.outcome == 'success' && steps.lake_recheck_restore.outputs.cache-primary-key != '' && steps.lake_recheck_restore.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: framed_channel/recheck/.lake
+          key: ${{ steps.lake_recheck_restore.outputs.cache-primary-key }}
+
+      - name: Write step summary
+        if: always()
+        run: |
+          {
+            echo "### Independent recheck, ${{ matrix.system }}"
+            echo "| Step | Detail |"
+            echo "|---|---|"
+            echo "| Lean toolchain (~/.elan) | ${{ steps.lean_toolchain.outcome }} (cache-hit: ${{ steps.lean_toolchain.outputs.cache-hit }}, verified: ${{ steps.lean_toolchain.outputs.verified }}, healed: ${{ steps.lean_toolchain.outputs.healed }}, saved: ${{ steps.lean_toolchain.outputs.saved }}, nixpkgs: ${{ steps.lean_toolchain.outputs.nixpkgs-rev }}) |"
+            echo "| Restore lake-bridge | ${{ steps.lake_bridge_restore.outcome }} (cache-hit: ${{ steps.lake_bridge_restore.outputs.cache-hit }}, restored key: ${{ steps.lake_bridge_restore.outputs.cache-matched-key }}) |"
+            echo "| Restore lake-recheck | ${{ steps.lake_recheck_restore.outcome }} (cache-hit: ${{ steps.lake_recheck_restore.outputs.cache-hit }}, restored key: ${{ steps.lake_recheck_restore.outputs.cache-matched-key }}) |"
+            echo "| Mathlib cache | ${{ steps.mathlib_cache.outcome }} (${{ steps.mathlib_cache.outputs.outcome }}) |"
+          } >> "$GITHUB_STEP_SUMMARY"

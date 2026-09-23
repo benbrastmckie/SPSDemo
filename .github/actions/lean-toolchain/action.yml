@@ -1,0 +1,134 @@
+# lean-toolchain -- the one place that restores, verifies, repairs and saves ~/.elan.
+#
+# Preconditions (both are the caller's job, and both must come first):
+#   1. the repository is checked out (the key reads flake.lock and the three lean-toolchain files);
+#   2. Nix is installed (the verify step runs `lake --version` inside a dev shell).
+# Place this step BEFORE anything that calls lake -- in particular before a "Mathlib cache" retry
+# loop, which would otherwise spend its three attempts on a lake that cannot execute.
+#
+# Key: elan-<epoch>-<os>-<arch>-<root nixpkgs locked rev>-<hash of the three lean-toolchain files>
+#   * nixpkgs rev: on Linux nixpkgs' elan patches each toolchain it installs so its ELF interpreter
+#     and `cc` wrapper are /nix/store paths of that nixpkgs revision. An entry made under another
+#     revision is dead on arrival ("error: command failed: 'lake' / No such file or directory"),
+#     so it must not be restorable. The rev, not hashFiles('flake.lock'): a relock that moves only
+#     aeneas or rust-overlay leaves the toolchain valid and must not re-save a whole toolchain
+#     entry per leg (size: docs/ci.md, Cache strategy, the `elan-v2-*` row).
+#   * NO restore-keys: a prefix fallback is exactly the mechanism that restores an entry made for
+#     different inputs. A miss costs one toolchain download; a wrong hit costs the whole run.
+#   * epoch (`v2`): bump it to abandon every existing entry at once if one is ever found bad.
+#     Cache entries are immutable, so this is the only repository-side way to replace one.
+#
+# Save: inside this action, immediately after a successful verification and only on a miss. At
+# that point ~/.elan is complete (every package's toolchain has just been run) and nothing later
+# in any job adds to it, so there is no window in which a cancelled or failed job can bank a
+# partial tree, and no `always()` anywhere.
+#
+# `use-cache: false` (a deliberately cold run, e.g. ci-macos-recheck.yml's `no_cache=true`
+# dispatch input) skips both the restore and the save; the verify step then installs the
+# toolchains itself, exactly as it does on a miss, and the run leaves no entry behind.
+#
+# On a cache miss (or use-cache: false), a Lean toolchain release-asset pin check
+# (nix/lean-toolchain-pin.sh, nix/lean-toolchain-pin.json) runs before the verify step lets elan
+# fetch the toolchain, since elan's own fetch from the pinned GitHub release tag has no hash
+# verification of its own. See docs/ci.md ("Cache strategy") for the policy this implements and
+# verify.sh for the probe itself.
+
+name: Lean toolchain
+description: >-
+  Restore ~/.elan keyed on the nixpkgs revision and the lean-toolchain files (no prefix fallback),
+  verify a cache miss's release asset against nix/lean-toolchain-pin.json before elan fetches it,
+  prove lake and lean run, reinstall once if they do not, and save on a verified miss. Requires a
+  checked-out repository and an installed Nix before it runs.
+
+inputs:
+  shell:
+    description: "Dev shell to verify in: the shell the calling job runs lake from (build, extraction, recheck)"
+    required: false
+    default: build
+  use-cache:
+    description: "'false' to neither restore nor save ~/.elan: the toolchain is installed fresh and only verified (a deliberately cold run)"
+    required: false
+    default: "true"
+
+outputs:
+  cache-hit:
+    description: "'true' when ~/.elan was restored from the exact key"
+    value: ${{ steps.restore.outputs.cache-hit }}
+  pin-checked:
+    description: >-
+      Outcome of the Lean toolchain release-asset pin check (nix/lean-toolchain-pin.sh):
+      'success' on a verified digest or a "no pin for this system" skip; 'failure' on a digest
+      mismatch or a pin/lean-toolchain inconsistency; 'skipped' on an exact cache hit (the
+      check never runs against an already-restored toolchain).
+    value: ${{ steps.pin_check.outcome }}
+  cache-primary-key:
+    description: "The elan cache key this run computed"
+    value: ${{ steps.restore.outputs.cache-primary-key }}
+  verified:
+    description: "'true' only when lake and lean ran in every package (possibly after one reinstall)"
+    value: ${{ steps.verify.outputs.verified }}
+  healed:
+    description: "'true' when the first probe failed and the toolchains were reinstalled"
+    value: ${{ steps.verify.outputs.healed }}
+  saved:
+    description: "Outcome of the save step: success, skipped (exact hit, or not verified) or failure"
+    value: ${{ steps.save.outcome }}
+  nixpkgs-rev:
+    description: "The root nixpkgs input's locked revision, for callers whose own cache keys need it"
+    value: ${{ steps.key.outputs.nixpkgs-rev }}
+
+runs:
+  using: composite
+  steps:
+    - name: Read the locked nixpkgs revision
+      id: key
+      shell: bash
+      run: |
+        set -u
+        if ! command -v jq > /dev/null 2>&1; then
+          echo "::error title=lean-toolchain::jq is not on the runner's PATH; it is needed to read flake.lock"
+          exit 1
+        fi
+        rev="$(jq -r '.nodes[.nodes.root.inputs.nixpkgs].locked.rev // empty' flake.lock)"
+        if [ -z "$rev" ]; then
+          echo "::error title=lean-toolchain::could not read the root nixpkgs locked rev from flake.lock (is the repository checked out before this action runs?)"
+          exit 1
+        fi
+        echo "nixpkgs-rev=$rev" >> "$GITHUB_OUTPUT"
+        echo "lean-toolchain: nixpkgs locked rev $rev"
+
+    - name: Restore ~/.elan (exact key only)
+      id: restore
+      if: inputs.use-cache == 'true'
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.elan
+        key: elan-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.key.outputs.nixpkgs-rev }}-${{ hashFiles('framed_channel/lean/lean-toolchain', 'framed_channel/aeneas/lean-toolchain', 'framed_channel/recheck/lean-toolchain') }}
+
+    # A miss here means the verify step below is about to have elan fetch the toolchain fresh
+    # from the same GitHub release tag elan always has, with no hash verification of its own.
+    # This step is the extra, independent check: it downloads the same release asset a second
+    # time and compares it against nix/lean-toolchain-pin.json's committed per-system sha256
+    # before elan's own (unverified) fetch runs. `cache-hit != 'true'` also covers
+    # `use-cache: false` (the restore step above is skipped entirely there, so its output is
+    # empty, not 'true'), matching every fresh-toolchain-fetch path this action has.
+    - name: Verify Lean toolchain release asset pin (on cache miss)
+      id: pin_check
+      shell: bash
+      if: steps.restore.outputs.cache-hit != 'true'
+      run: bash nix/lean-toolchain-pin.sh
+
+    - name: Verify lake and lean run (reinstall once if not)
+      id: verify
+      shell: bash
+      env:
+        LEAN_TOOLCHAIN_SHELL: ${{ inputs.shell }}
+      run: bash "$GITHUB_ACTION_PATH/verify.sh"
+
+    - name: Save ~/.elan (verified miss only)
+      id: save
+      if: inputs.use-cache == 'true' && steps.verify.outputs.verified == 'true' && steps.restore.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.elan
+        key: ${{ steps.restore.outputs.cache-primary-key }}

@@ -1,0 +1,50 @@
+# mathlib-cache -- the one place that fetches Mathlib's prebuilt oleans for the bridge package
+# (`lake exe cache get` in framed_channel/aeneas), for every job that builds the bridge
+# (ci-macos-gate.yml's `aeneas-gate`, ci-macos-recheck.yml's `recheck-kernel`, and every leg of
+# both `verify.yml` matrix jobs -- build-and-test.yml's `build` job builds only the core package,
+# so it never calls this action).
+#
+# Preconditions (the caller's job, in this order):
+#   1. the repository is checked out;
+#   2. Nix is installed;
+#   3. the lean-toolchain action has run, so `lake` is already proven to execute;
+#   4. the job's lake-bridge cache restore has run, so a restored tree is topped up, not replaced.
+#
+# Covers Mathlib and its upstream packages, content-addressed and free; does not cover the Aeneas
+# library or this repository's own modules, which the calling job still compiles. Non-fatal on a
+# NETWORK failure: after three attempts the step succeeds with outcome=miss and the caller's build
+# compiles Mathlib from source (correct, slower). Fatal when `lake` cannot execute: that is a
+# broken toolchain, which no retry can repair. get.sh, beside this file, is the step itself.
+#
+# See docs/ci.md ("Cache strategy") for why Mathlib's build is served from here and not from lake-bridge.
+
+name: Mathlib cache
+description: >-
+  Run `lake exe cache get` for the bridge package inside a dev shell, three attempts, non-fatal
+  on a network failure and fatal on a lake that cannot execute. Requires a checked-out repository,
+  an installed Nix and a verified Lean toolchain before it runs.
+
+inputs:
+  shell:
+    description: "Dev shell to run lake in: the shell the calling job builds the bridge from (build, extraction, recheck)"
+    required: true
+  fallback:
+    description: "What compiles Mathlib from source on a miss, named in the warning (for example 'check.sh --aeneas')"
+    required: false
+    default: "the bridge build"
+
+outputs:
+  outcome:
+    description: "'hit' when the cache was fetched, 'miss' after three failed attempts"
+    value: ${{ steps.get.outputs.outcome }}
+
+runs:
+  using: composite
+  steps:
+    - name: lake exe cache get (3 attempts, non-fatal)
+      id: get
+      shell: bash
+      env:
+        MATHLIB_CACHE_SHELL: ${{ inputs.shell }}
+        MATHLIB_CACHE_FALLBACK: ${{ inputs.fallback }}
+      run: bash "$GITHUB_ACTION_PATH/get.sh"

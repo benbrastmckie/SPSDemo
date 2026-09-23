@@ -1,0 +1,130 @@
+# setup-without-nix.yml -- narrow, path-filtered coverage for docs/setup-without-nix.md's
+# documented procedure: installs the pinned Lean toolchain via elan and uses the runner's
+# already-provisioned Rust toolchain (rustup; GitHub-hosted ubuntu-24.04 images ship it by
+# default), with NO Nix invocation of any kind, then runs
+# `bash framed_channel/check.sh --committed-extraction` -- the one check the doc itself says
+# runs without Charon/Aeneas. The non-Nix path stays supported, backed by this one small job,
+# rather than marked unsupported.
+#
+# What this job checks: the Lean toolchain install procedure the doc documents, the runner's own
+# Rust toolchain reaching the pinned version, and `check.sh --committed-extraction` completing
+# (INCOMPLETE, exit 3, by design -- it never claims the verification result). It also confirms the
+# pinned Aeneas release asset the doc points a collaborator at still resolves upstream (an HTTP
+# HEAD, no download), so a doc that silently rots (a deleted release, a renamed asset) is caught.
+#
+# What this job explicitly does NOT check: no full gate, no Charon/Aeneas install or extraction
+# replay, no independent recheck. Coverage here is deliberately narrow, matching exactly what
+# docs/setup-without-nix.md documents -- see that file's own opening line for the accurate
+# statement of scope.
+#
+# Path-filtered (only the files whose drift this job would actually catch), plus workflow_dispatch
+# for an on-demand run.
+
+name: Setup without Nix
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "docs/setup-without-nix.md"
+      - "nix/aeneas-pin.json"
+      - "rust-toolchain.toml"
+      - "framed_channel/check.sh"
+      - "framed_channel/lean/**"
+      - "framed_channel/aeneas/**"
+      - "framed_channel/rust/**"
+      - "framed_channel/scripts/**"
+      - "framed_channel/certificate/**"
+      - "!framed_channel/tests/**"
+      - ".github/workflows/setup-without-nix.yml"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "docs/setup-without-nix.md"
+      - "nix/aeneas-pin.json"
+      - "rust-toolchain.toml"
+      - "framed_channel/check.sh"
+      - "framed_channel/lean/**"
+      - "framed_channel/aeneas/**"
+      - "framed_channel/rust/**"
+      - "framed_channel/scripts/**"
+      - "framed_channel/certificate/**"
+      - "!framed_channel/tests/**"
+      - ".github/workflows/setup-without-nix.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: setup-without-nix-${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  setup-without-nix:
+    name: Setup without Nix (elan + the runner's own Rust toolchain, no Nix)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout repository
+        id: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Exactly the doc's own elan link (https://github.com/leanprover/elan): installs the
+      # toolchain manager, not a specific Lean version -- lean-toolchain in each package directory
+      # selects the actual version on first `lake build`.
+      - name: Install elan (leanprover/elan, per docs/setup-without-nix.md)
+        id: install_elan
+        run: |
+          set -euo pipefail
+          curl -sSf https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      # GitHub-hosted ubuntu-24.04 runners already ship rustup and a default Rust toolchain (the
+      # doc names rustup as the tool to install; this runner already has it, so no extra install
+      # step is needed here). Confirms the pinned version (rust-toolchain.toml, 1.95.0) resolves
+      # via rustup's own toolchain-file auto-detection before the gate depends on it.
+      - name: Confirm the pinned Rust toolchain resolves (rustup, already provisioned)
+        id: confirm_rust
+        run: |
+          set -euo pipefail
+          rustup show active-toolchain
+          cargo --version
+          cargo fmt --version
+          cargo clippy --version
+
+      # An HTTP HEAD only -- no download -- confirming the release asset
+      # docs/setup-without-nix.md points a collaborator at still resolves upstream. Catches a
+      # doc that has silently rotted (a deleted release, a renamed asset) independently of
+      # whether this job ever exercises the tarball itself.
+      - name: Confirm the pinned Aeneas release asset still resolves upstream (HTTP HEAD only)
+        id: confirm_asset
+        run: |
+          set -euo pipefail
+          tag="$(jq -r '.tag' nix/aeneas-pin.json)"
+          name="$(jq -r '.assets["x86_64-linux"].name' nix/aeneas-pin.json)"
+          url="https://github.com/AeneasVerif/aeneas/releases/download/${tag}/${name}"
+          code="$(curl -sSL -o /dev/null -w '%{http_code}' --head "$url")"
+          echo "HEAD $url -> $code"
+          case "$code" in
+            200|302) ;;
+            *) echo "::error::the pinned release asset docs/setup-without-nix.md points at no longer resolves ($url -> $code); the doc has rotted" >&2; exit 1 ;;
+          esac
+
+      # The one check docs/setup-without-nix.md says runs without Charon/Aeneas (jq is the only
+      # extra tool it needs beyond elan/rustup, both already on PATH above). INCOMPLETE (exit 3)
+      # by design -- this is not the verification claim; any other exit code is a defect.
+      - name: "framed_channel/check.sh --committed-extraction (no Nix)"
+        id: committed_extraction
+        run: |
+          set -euo pipefail
+          echo "::group::bash framed_channel/check.sh --committed-extraction"
+          rc=0
+          bash framed_channel/check.sh --committed-extraction || rc=$?
+          if [ "$rc" -ne 3 ]; then
+            echo "::error::check.sh --committed-extraction exited $rc; it ends INCOMPLETE (exit 3) by design, and any other exit code is a defect"
+            exit 1
+          fi
+          echo "::endgroup::"

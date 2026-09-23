@@ -1,0 +1,88 @@
+# intel-installer-smoke.yml -- proves, when requested, that the pinned
+# DeterminateSystems/nix-installer-action still installs a working Nix on x86_64-darwin.
+#
+# Unlike every other macOS job in this repository, which is on request only because macOS runners
+# are billed at a multiple of the Linux rate wherever GitHub Actions minutes are metered (a private
+# repository or fork), this one keeps a `pull_request` trigger path-filtered to its own file: it is the
+# one documented exception to the on-request rule (see docs/ci.md's "macOS runs on request only"),
+# because it costs under two runner-minutes per action bump and its whole purpose is catching an
+# installer-sunset regression on the PR that introduces it. In practice that PR is Dependabot's
+# weekly grouped action-SHA bump, which starts this trigger without the manual approval a
+# `GITHUB_TOKEN`-authored PR needs. `workflow_dispatch` remains the fallback:
+#   gh workflow run intel-installer-smoke.yml --ref <branch>
+#
+# Why this exists at all. Upstream has ended Intel macOS support: the action's own constructor
+# emits an ::error:: on X64-macOS and then, only when the caller passes no `source-tag`, pins
+# itself to v3.12.2 -- described upstream, in that same message, as "a temporary fallback". Every
+# Intel leg in this repository therefore rests on a code path upstream has already announced it is
+# removing. That is an acceptable dependency; an undetected one is not.
+#
+# The gap this closes. Action SHAs are bumped by Dependabot weekly, grouped into a single PR
+# (.github/dependabot.yml). The only other place that installs Nix on Intel is
+# fresh-clone-canary.yml's x86_64-darwin leg, itself opt-in (`-f macos=true`). ci-macos.yml's own
+# Intel leg (`launcher-compat`) deliberately installs no Nix. Without this workflow's own
+# `pull_request` trigger, the bump that removes the fallback would merge with every check green and
+# surface only at the next requested canary, grouped with a dozen unrelated action bumps -- the
+# failure detached from its cause. The path-filtered trigger above puts that detection on the
+# Dependabot PR itself, automatically; `workflow_dispatch` remains available for any other branch
+# that touches the installer pin outside that PR.
+#
+# Why it is cheap. Only the installer is under test here, never the gate: installing Nix took 1.3
+# minutes on the canary's Intel leg, against the 48.6 minutes that leg spends in
+# `check.sh --committed-extraction`. Those two costs are separable, and this workflow takes only
+# the first.
+#
+# What it reads. Nothing from the tree: it installs Nix and asks Nix what system it is on. Its only
+# input is the action pin it carries, which lives in this file -- and Dependabot's grouped PR edits
+# every file holding that pin, this one included.
+#
+# What a failure here means. Not a repository defect: it means the pinned installer action no
+# longer installs Nix on Intel. See docs/ci.md's "Known coverage gaps" for the standing decision --
+# the x86_64-darwin legs are retired at that point rather than pinned to a dead installer release.
+
+name: Intel installer smoke
+
+on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/intel-installer-smoke.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: intel-installer-smoke-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  intel-installer-smoke:
+    name: Intel installer smoke (x86_64-darwin)
+    runs-on: macos-15-intel
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # No inputs: passing `source-tag` here would suppress the action's own fallback and hide
+      # exactly the transition this workflow exists to catch. The ::error:: annotation this step
+      # emits on Intel is expected and does not fail the step -- see this file's header.
+      - name: Install Nix (DeterminateSystems/nix-installer-action)
+        id: install_nix
+        uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+
+      # `builtins.currentSystem`, not `uname`: it asserts the Nix that was installed is itself an
+      # x86_64-darwin Nix, which a Rosetta-translated or wrong-architecture install would fail.
+      - name: Assert Nix installed and reports x86_64-darwin
+        run: |
+          set -euo pipefail
+          nix --version
+          system="$(nix eval --impure --raw --expr 'builtins.currentSystem')"
+          echo "builtins.currentSystem = ${system}"
+          if [ "${system}" != "x86_64-darwin" ]; then
+            echo "::error::Installed Nix reports '${system}', expected 'x86_64-darwin'." >&2
+            exit 1
+          fi

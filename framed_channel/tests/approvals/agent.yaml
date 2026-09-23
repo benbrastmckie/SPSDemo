@@ -1,0 +1,29 @@
+# fixture: current, with the selection and one specification approved by a declared agent
+selection:
+  candidates_sha256: {{CANDIDATES_SHA256}}
+  source_sha256: {{SOURCE_SHA256}}
+  selected:
+    - framed_channel.ring_buffer.RingBuffer.push
+    - framed_channel.ring_buffer.RingBuffer.pop
+  declined:
+    - name: framed_channel.ring_buffer.Full.Insts.CoreFmtDebug.fmt
+      reason: "derived Debug impl; no behavioural claim"
+  approver: "Test Agent (agent) <agent@example.org>"
+  by: agent
+  date: 2026-01-31
+specification:
+  - challenge: FramedChannelChallenge.RingBuffer
+    spec_digest: 111
+    approver: "Test Agent (agent) <agent@example.org>"
+    by: agent
+    date: 2026-01-31
+  - challenge: FramedChannelChallenge.Varint
+    spec_digest: 222
+    approver: "Test Person <test@example.org>"
+    by: person
+    date: 2026-01-31
+  - challenge: FramedChannelAeneasChallenge.RingBuffer
+    spec_digest: 333
+    approver: "Test Person <test@example.org>"
+    by: person
+    date: 2026-01-31

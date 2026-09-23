@@ -1,0 +1,8 @@
+# The single source of the Rust toolchain version: check.sh's `cargo fmt --check` and
+# `cargo clippy -D warnings` stages, and framed_channel/rust/Cargo.toml's `rust-version`, are
+# recorded against 1.95.0. flake.nix reads this file (`rust-bin.fromRustupToolchainFile`) so the
+# nix devShell and a rustup-only checkout cannot drift apart.
+[toolchain]
+channel = "1.95.0"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

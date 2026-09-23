@@ -1,0 +1,21 @@
+{
+  "lean_toolchain": "leanprover/lean4:v4.31.0",
+  "assets": {
+    "x86_64-linux": {
+      "name": "lean-4.31.0-linux.tar.zst",
+      "sha256": "07a633cc8d9151cbc08825ea4cdda50d4b02a2c9cb852c0131b13046f49cad7f"
+    },
+    "aarch64-linux": {
+      "name": "lean-4.31.0-linux_aarch64.tar.zst",
+      "sha256": "b1bf1d3c586b76cf4a86212a595d8b9edd99f438a41cce85d5780fa9347c811b"
+    },
+    "aarch64-darwin": {
+      "name": "lean-4.31.0-darwin_aarch64.tar.zst",
+      "sha256": "264105500c8abdf37b68ffe03390a783ed259807807222698da8dd92d6ce0a27"
+    },
+    "x86_64-darwin": {
+      "name": "lean-4.31.0-darwin.tar.zst",
+      "sha256": "6dac7a8f9d6d0bc339b4ea9376c06a88f3fd1a7f462beb3c7ded9fbc934f3fb5"
+    }
+  }
+}

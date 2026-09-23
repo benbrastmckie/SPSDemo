@@ -1,0 +1,260 @@
+# macOS kernel replay: the evidence for the "the kernel replay (Lean4Lean, leanchecker) runs on
+# macOS" portability claim (see framed_channel/scripts/recheck-kernel.sh and docs/ci.md's platform
+# table). One job, `recheck-kernel`, on macos-26 (aarch64-darwin). It runs
+# scripts/recheck-kernel.sh --bridge and scripts/recheck-comparator.sh --bridge directly, NOT
+# `check.sh --recheck` -- no macOS job passes `--recheck` to `check.sh` at all; ci-macos-gate.yml's
+# `aeneas-gate` job runs `bash full-gate.sh --yes` with no `--recheck` either. Comparator is
+# NOT-RUN on macOS by design (it needs Linux's Landlock sandbox), which this job also asserts.
+#
+# On request only. macOS runners are billed at a multiple of the Linux rate wherever GitHub
+# Actions minutes are metered (a private repository or fork), and this is the slowest job in the
+# repository (docs/ci.md's Cost section has the measured figures): no macOS job runs on push,
+# pull_request or schedule. `workflow_dispatch` is the only trigger; docs/ci.md's Trigger policy
+# has the full list of on-request workflows.
+#   gh workflow run ci-macos-recheck.yml --ref <branch>                   # cached
+#   gh workflow run ci-macos-recheck.yml --ref <branch> -f no_cache=true  # uncached
+# then check the job's step summary / kernel.verdicts for every line OK.
+#
+# Request it whenever an input of the replay changed:
+#   - what is replayed: every module of the core and bridge packages (framed_channel/lean/**,
+#     framed_channel/aeneas/**, which also covers their lean-toolchain, lakefile.toml and
+#     lake-manifest.json);
+#   - what replays it: framed_channel/recheck/** (the lean4lean/lean4export tool package and its
+#     pins) and framed_channel/scripts/** -- the two scripts this job runs, everything they source
+#     (scripts/lib/**, scripts/certificate-identity.sh) and scripts/comparator-configs.sh, which
+#     recheck-comparator.sh runs BEFORE its Linux-only exit to decide which NOT-RUN lines this
+#     job asserts;
+#   - what comparator-configs.sh reads: framed_channel/certificate/policy.txt and axioms.txt;
+#   - the environment: flake.nix, flake.lock and everything flake.nix reads to evaluate the
+#     `.#build` shell (nix/**, rust-toolchain.toml), and the composite actions (.github/actions/**).
+# Nothing else in the repository can change this job's verdict.
+#
+# Drift insurance: a green run matches the inputs it ran on, but not the current WORLD -- the
+# macos-26 runner image, the Nix installer, Mathlib's olean cache and elan's download servers all
+# move underneath an unchanged repository. The `no_cache` input therefore runs the job with none
+# of this repository's Actions caches restored or saved (~/.elan, lake-bridge, lake-recheck),
+# which is what a first-time macOS contributor gets; request it before a release and after a long
+# quiet period. Mathlib's own content-addressed olean cache (`lake exe cache get`) is upstream's,
+# not ours, and is still used.
+#
+# Cache note: keys are parameterized on runner.os/runner.arch, so no key is shared with or evicted
+# by a Linux leg; ~/.elan and lake-bridge are shared with ci-macos.yml's and ci-macos-gate.yml's
+# jobs. Entries unused for 7 days are evicted, so a run after a quiet week starts cold.
+
+name: CI (macOS recheck)
+
+on:
+  workflow_dispatch:
+    inputs:
+      no_cache:
+        type: boolean
+        default: false
+        description: "Run without restoring or saving any of this repository's caches (what a first-time macOS contributor gets)"
+
+permissions:
+  contents: read
+
+# Every run is a workflow_dispatch run and gets its own group keyed on github.run_id, so requested
+# runs never cancel each other. The github.ref fallback is inert while dispatch is the only trigger.
+concurrency:
+  group: ci-macos-recheck-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.ref }}
+  cancel-in-progress: true
+
+# 'false' on a no_cache dispatch; every cache step below reads it.
+env:
+  USE_CACHE: ${{ !inputs.no_cache }}
+
+jobs:
+  recheck-kernel:
+    name: Independent recheck kernel replay (macos-26)
+    runs-on: macos-26
+    # Sized from docs/ci.md's cold-macOS figures (build-and-test.yml's macos-26 leg measured
+    # 8 min cold for a much lighter build): this job additionally fetches and builds the
+    # recheck/ tools (lean4lean, lean4export) and the aeneas/ bridge's dependencies
+    # (Aeneas + Mathlib) on a first run, then replays every module of both packages twice
+    # (Lean4Lean and leanchecker). See docs/ci.md's Cost section for the measured cold and warm
+    # durations this budget is sized from.
+    timeout-minutes: 80
+    steps:
+      - name: Checkout repository
+        id: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Same installer settings as build-and-test.yml's step; no extra substituter or trust
+      # configuration needed here (this job never touches charon/aeneas, only the aeneas/ Lake
+      # package's own dependencies, fetched by `lake`, not the `aeneas` CLI).
+      - name: Install Nix (DeterminateSystems/nix-installer-action)
+        id: install_nix
+        uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+
+      # Same key as build-and-test.yml's (shared across every leg on this OS/arch), so any
+      # ci-macos.yml `build` run on this toolchain already warmed it.
+      - name: Lean toolchain (restore, verify, self-heal and save ~/.elan)
+        id: lean_toolchain
+        uses: ./.github/actions/lean-toolchain
+        with:
+          shell: build
+          use-cache: ${{ env.USE_CACHE }}
+
+      # Skipped on an uncached run (USE_CACHE above); the two Save steps then skip themselves,
+      # because a skipped restore has no cache-primary-key.
+      # Same path/key shape as verify.yml's lake-bridge entry; OS/arch-parameterized, so this
+      # never shares or evicts a Linux entry.
+      - name: Restore lake-bridge (framed_channel/{lean,aeneas}/.lake without Mathlib's build)
+        id: lake_bridge_restore
+        if: env.USE_CACHE == 'true'
+        uses: ./.github/actions/lake-bridge
+        with:
+          mode: restore
+
+      # Only this job's own package (the recheck/ tools: lean4lean, lean4export).
+      - name: Restore lake-recheck (framed_channel/recheck/.lake)
+        id: lake_recheck_restore
+        if: env.USE_CACHE == 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: framed_channel/recheck/.lake
+          key: lake-recheck-v3-${{ runner.os }}-${{ runner.arch }}-${{ steps.lean_toolchain.outputs.nixpkgs-rev }}-${{ hashFiles('framed_channel/recheck/lean-toolchain', 'framed_channel/recheck/lake-manifest.json') }}
+
+      # Non-fatal, identical rationale to verify.yml's step: after three failures, the bridge
+      # build below compiles Mathlib from source (slower, still correct).
+      - name: Mathlib cache (lake exe cache get, 3 attempts, non-fatal)
+        id: mathlib_cache
+        uses: ./.github/actions/mathlib-cache
+        with:
+          shell: build
+          fallback: "the bridge build below"
+
+      # scripts/recheck-kernel.sh and scripts/recheck-comparator.sh both need the recheck/ tools
+      # built (lean4lean, lean4export) -- recheck-revs.sh's recheck_tool_paths looks for them
+      # under recheck/.lake. Built with `lake build` from recheck/, exactly as their own
+      # `Requires:` header documents.
+      - name: Build recheck/ tools (lean4lean, lean4export)
+        id: build_recheck_tools
+        run: |
+          set -euo pipefail
+          nix develop .#build --command bash -c 'cd framed_channel/recheck && lake build lean4lean/lean4lean lean4export/lean4export'
+
+      # The evidence for the portability claim: every lean4lean/leanchecker/leanchecker-fresh
+      # line for core and bridge must be OK (lean4lean-fresh stays NOT-RUN: this job does not
+      # pass --fresh, matching check.sh's default). A FAIL here is a real regression, not an
+      # expected absence -- .#build supplies the pinned Lean toolchain via elan, and the bridge's
+      # dependencies were just fetched above.
+      - name: scripts/recheck-kernel.sh --bridge
+        id: recheck_kernel
+        run: |
+          set -euo pipefail
+          echo "::group::nix develop .#build --command bash framed_channel/scripts/recheck-kernel.sh --out \$RUNNER_TEMP/rk --bridge"
+          rc=0
+          nix develop .#build --command bash framed_channel/scripts/recheck-kernel.sh --out "$RUNNER_TEMP/rk" --bridge || rc=$?
+          cat "$RUNNER_TEMP/rk/kernel.verdicts"
+          bad="$(awk '$1 != "lean4lean-fresh" && $3 != "OK" { print }' "$RUNNER_TEMP/rk/kernel.verdicts")"
+          if [ -n "$bad" ] || [ "$rc" -ne 0 ]; then
+            echo "::error::recheck-kernel.sh did not report every checker OK on macOS (exit $rc); offending line(s): ${bad:-<none>}"
+            exit 1
+          fi
+          echo "every lean4lean/leanchecker/leanchecker-fresh line for core and bridge is OK on macos-26"
+          echo "::endgroup::"
+
+      # Confirms the platform NOT-RUN split from the other side: Comparator must NOT silently
+      # attempt to run on macOS, and its reason must name the platform. A FAIL, an OK, or any
+      # reason other than "Landlock sandbox is Linux-only" is a regression of the platform check
+      # in scripts/recheck-comparator.sh.
+      - name: scripts/recheck-comparator.sh --bridge (confirm platform NOT-RUN)
+        id: recheck_comparator
+        run: |
+          set -euo pipefail
+          echo "::group::nix develop .#build --command bash framed_channel/scripts/recheck-comparator.sh --out \$RUNNER_TEMP/rk --bridge"
+          rc=0
+          nix develop .#build --command bash framed_channel/scripts/recheck-comparator.sh --out "$RUNNER_TEMP/rk" --bridge || rc=$?
+          cat "$RUNNER_TEMP/rk/comparator.verdicts"
+          bad="$(awk '$2 != "NOT-RUN" || $0 !~ /Landlock sandbox is Linux-only/ { print }' "$RUNNER_TEMP/rk/comparator.verdicts")"
+          if [ -n "$bad" ] || [ "$rc" -ne 0 ]; then
+            echo "::error::recheck-comparator.sh did not report every config NOT-RUN (Landlock sandbox is Linux-only) on macOS (exit $rc); offending line(s): ${bad:-<none>}"
+            exit 1
+          fi
+          echo "every comparator config is NOT-RUN, reason \"Landlock sandbox is Linux-only\", on macos-26"
+          echo "::endgroup::"
+
+      # scripts/recheck-record.sh is the same renderer check.sh --recheck uses (Phase 7 of the
+      # gate-script-simplification work), run standalone over the two verdict files above.
+      # Comparator's Landlock-only NOT-RUN keeps this record PARTIAL (exit 2) by construction, on
+      # every platform, not only macOS -- this job asserts exactly that shape, plus that no OTHER
+      # checker is unexpectedly NOT-RUN (which would mean a checker silently failed to run instead
+      # of the expected platform-only gap).
+      - name: scripts/recheck-record.sh (render the macOS PARTIAL record)
+        id: recheck_record
+        run: |
+          set -euo pipefail
+          echo "::group::nix develop .#build --command bash framed_channel/scripts/recheck-record.sh"
+          nix develop .#build --command bash -c '
+            . framed_channel/scripts/lib/recheck-revs.sh
+            recheck_rev_coherence
+          ' > "$RUNNER_TEMP/rk/coherence.txt" 2>&1 || true
+          cat "$RUNNER_TEMP/rk/coherence.txt"
+          identity="$(nix develop .#build --command bash framed_channel/scripts/certificate-identity.sh)"
+          rc=0
+          nix develop .#build --command bash framed_channel/scripts/recheck-record.sh \
+            --work-dir "$RUNNER_TEMP/rk" --coherence-file "$RUNNER_TEMP/rk/coherence.txt" \
+            --identity "$identity" \
+            --complete-out "$RUNNER_TEMP/rk/recheck.txt" \
+            --partial-out "$RUNNER_TEMP/rk/recheck.partial.txt" || rc=$?
+          if [ "$rc" -ne 2 ]; then
+            echo "::error::recheck-record.sh did not report a PARTIAL record on macOS (exit $rc; expected 2, since Comparator is NOT-RUN here by design)"
+            exit 1
+          fi
+          bad="$(grep '^verdict: ' "$RUNNER_TEMP/rk/recheck.partial.txt" | awk '$4 == "NOT-RUN" && $2 != "comparator" && $2 != "lean4lean-fresh" { print }')"
+          if [ -n "$bad" ]; then
+            echo "::error::recheck-record.sh's PARTIAL record has a NOT-RUN row outside Comparator/lean4lean-fresh; offending line(s): $bad"
+            exit 1
+          fi
+          echo "recheck.partial.txt is PARTIAL with only the expected Comparator (and optional lean4lean-fresh) NOT-RUN rows"
+          echo "::endgroup::"
+
+      - name: Upload verdicts
+        id: upload_verdicts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: recheck-kernel-macos-verdicts
+          path: |
+            ${{ runner.temp }}/rk/kernel.verdicts
+            ${{ runner.temp }}/rk/comparator.verdicts
+            ${{ runner.temp }}/rk/recheck.partial.txt
+          if-no-files-found: warn
+          retention-days: 14
+
+      # Same outcome-based save discipline as verify.yml's steps: never from a failed or cancelled
+      # populate. ~/.elan is saved by the lean-toolchain action itself.
+      - name: Save lake-bridge
+        id: lake_bridge_save
+        if: ${{ !cancelled() && steps.recheck_kernel.outcome == 'success' }}
+        uses: ./.github/actions/lake-bridge
+        with:
+          mode: save
+          primary-key: ${{ steps.lake_bridge_restore.outputs.cache-primary-key }}
+          cache-hit: ${{ steps.lake_bridge_restore.outputs.cache-hit }}
+
+      - name: Save lake-recheck
+        id: lake_recheck_save
+        if: ${{ !cancelled() && steps.build_recheck_tools.outcome == 'success' && steps.lake_recheck_restore.outputs.cache-primary-key != '' && steps.lake_recheck_restore.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: framed_channel/recheck/.lake
+          key: ${{ steps.lake_recheck_restore.outputs.cache-primary-key }}
+
+      - name: Write step summary
+        if: always()
+        run: |
+          {
+            echo "### Independent recheck kernel replay (macos-26)"
+            echo "| Step | Detail |"
+            echo "|---|---|"
+            echo "| Repository caches in use | ${{ env.USE_CACHE }} (event: ${{ github.event_name }}) |"
+            echo "| Lean toolchain (~/.elan) | ${{ steps.lean_toolchain.outcome }} (cache-hit: ${{ steps.lean_toolchain.outputs.cache-hit }}, verified: ${{ steps.lean_toolchain.outputs.verified }}, healed: ${{ steps.lean_toolchain.outputs.healed }}, saved: ${{ steps.lean_toolchain.outputs.saved }}, nixpkgs: ${{ steps.lean_toolchain.outputs.nixpkgs-rev }}) |"
+            echo "| Restore lake-bridge | ${{ steps.lake_bridge_restore.outcome }} (cache-hit: ${{ steps.lake_bridge_restore.outputs.cache-hit }}) |"
+            echo "| Restore lake-recheck | ${{ steps.lake_recheck_restore.outcome }} (cache-hit: ${{ steps.lake_recheck_restore.outputs.cache-hit }}) |"
+            echo "| Mathlib cache | ${{ steps.mathlib_cache.outcome }} (${{ steps.mathlib_cache.outputs.outcome }}) |"
+          } >> "$GITHUB_STEP_SUMMARY"

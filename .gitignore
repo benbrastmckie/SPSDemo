@@ -1,0 +1,20 @@
+# Agent-system deploy artifacts and session output (regenerated, never shipped)
+/.claude
+/.agent-logs
+/.playwright-mcp
+/.claude-extensions.json
+/.syncprotect
+
+# Internal task-management records (not shipped).
+/specs/
+
+# Private working material not part of the shipped artifact.
+/.memory/
+
+# `nix build` output symlinks (default `result`, and any `-o result-*` override).
+/result
+/result-*
+
+# A partial independent-recheck record (check.sh --recheck on a host where some verdict is
+# NOT-RUN, e.g. Comparator on a non-Linux host): never the canonical certificate/recheck.txt.
+/framed_channel/certificate/recheck.partial.txt

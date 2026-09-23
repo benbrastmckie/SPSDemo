@@ -1,0 +1,28 @@
+# The pinned independent-recheck tools (see README.md in this directory): Lean4Lean, a Lean-in-Lean
+# kernel re-typechecker, and lean4export, the exporter whose format Comparator's parser reads. Both
+# are built on this package's toolchain, which must equal ../lean/lean-toolchain
+# (../scripts/lib/recheck-revs.sh checks it, and checks the Lean githash embedded in each built
+# binary).
+#
+# lean4export's `rev` below is the one hand-synced duplicate of ../../nix/comparator-pin.json's
+# `lean4export_rev` (Lake TOML has no external-file read, unlike the Nix and shell consumers,
+# which read that file directly). It MUST equal that field exactly; recheck_pin_coherence in
+# ../scripts/lib/recheck-revs.sh enforces it, build-free, on every `check.sh` run (not only under
+# `--recheck`). lean4lean's `rev` is an independent HOLD pin (LEAN4LEAN_REV in recheck-revs.sh),
+# deliberately not part of the shared pin file.
+#
+# Update ONLY with `lake update --keep-toolchain`: a plain `lake update` adopts lean4export's own
+# toolchain (a newer Lean) into lean-toolchain and builds the tools for the wrong Lean.
+
+name = "framed_channel_recheck"
+license = "Apache-2.0"
+
+[[require]]
+name = "lean4lean"
+git = "https://github.com/digama0/lean4lean"
+rev = "095c0a947ab870a5dcf0797725a4caec66624285"
+
+[[require]]
+name = "lean4export"
+git = "https://github.com/leanprover/lean4export"
+rev = "076e8e57707e813375e8f9da8bf989799ace9680"

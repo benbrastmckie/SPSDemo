@@ -1,0 +1,30 @@
+{
+  "tag": "nightly-2026.09.22-12a018b",
+  "rev": "12a018bb0fab3333be572dadc0eab5108758552b",
+  "commit_date": "2026-09-21T23:09:51Z",
+  "charon_rev": "62585970fc75f61d83c7898ff8dfdd7edaa3c073",
+  "rust_nightly": "2026-09-17",
+  "rust_components": [
+    "rustc-dev",
+    "llvm-tools",
+    "rust-src",
+    "miri"
+  ],
+  "lean_toolchain": "leanprover/lean4:v4.31.0",
+  "assets": {
+    "x86_64-linux": {
+      "name": "aeneas-linux-x86_64.tar.gz",
+      "sha256": "sha256-HmwoG3iWCtzp5YqmXLu0p35UfXhMCaB1dTPMY+T9BVE="
+    },
+    "aarch64-linux": {
+      "name": "aeneas-linux-aarch64.tar.gz",
+      "sha256": "sha256-pgrhnkGxNU3oIRObkHbb/uzyk73TUj1+joBABC/dkp4="
+    },
+    "aarch64-darwin": {
+      "name": "aeneas-macos-aarch64.tar.gz",
+      "sha256": "sha256-hKkSI1UAEcJ3xzotwL+nELD1R0w0RTAcXj/f9P/dxj8="
+    }
+  },
+  "source_build_known_broken": {},
+  "macos_fallback": false
+}

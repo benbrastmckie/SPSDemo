@@ -1,0 +1,594 @@
+# Validates docs/setup-without-nix.md's Windows section: a WSL2 Ubuntu-24.04 distribution with
+# Nix installed inside it, running this repository's build-and-test command set there. The flake
+# already treats WSL2 as x86_64-linux (flake.nix's `systems`), so this workflow adds evidence for
+# a documented INSTALL PATH, not new platform coverage -- docs/ci.md's platform matrix and
+# flake.nix's `systems` list are untouched, and Windows itself stays "Unsupported".
+#
+# Architecture decision (D1): this job does NOT call build-and-test.yml, unlike every other
+# build-and-test leg (ci.yml's two Linux legs, ci-macos.yml's macOS leg). It has its own `build`
+# job body below, mirroring build-and-test.yml's command set by hand. Four reasons, each verified
+# against the files as they stood when this workflow was written:
+#   1. actions/cache runs on the Windows HOST, but build-and-test.yml's cache paths (~/.elan and
+#      the .lake/cargo trees) only exist INSIDE WSL2 once the build runs there -- a `shell` input
+#      alone does not bridge that, it would need a parallel cache-disable input too.
+#   2. Three shared composite actions under .github/actions/ hardcode `shell: bash`
+#      (lean-toolchain, mathlib-cache, substituter-probe), which resolves to the Windows host's
+#      Git Bash, not WSL2, on a Windows runner. Giving each its own shell input would put the
+#      badge-bearing ci.yml path and verify.yml at risk for the sake of this exploratory leg.
+#   3. $GITHUB_OUTPUT/$GITHUB_ENV/$GITHUB_STEP_SUMMARY/$GITHUB_ACTION_PATH hold Windows-side
+#      paths that a WSL2-side `run:` step cannot open without WSLENV translation; whether the
+#      `wsl-bash` wrapper below translates them is exactly what the `wsl2-probe` job's Probe A
+#      establishes, empirically, rather than assumes. Partial evidence already exists: run
+#      35752188098's `build` job reached its "Write step summary" step (a step that referenced
+#      $GITHUB_STEP_SUMMARY unguarded at the time) and died with "GITHUB_STEP_SUMMARY: unbound
+#      variable" -- consistent with these vars not being propagated into WSL2, though that run
+#      never reached Probe A itself (both jobs died earlier, at "Install Nix", on an unrelated
+#      `curl` flag typo fixed the same day). Every $GITHUB_OUTPUT/$GITHUB_ENV/$GITHUB_STEP_SUMMARY
+#      reference in this file now guards with `${VAR:-}` so a future run reports this cleanly
+#      through Probe A instead of aborting on it.
+#   4. Declaring build-and-test.yml as what this workflow mirrors (rather than calls) makes the
+#      drift risk explicit instead of structural: this workflow is dispatch-only and validates a
+#      convenience path, so its drift exposure is bounded, but it is real -- see the
+#      "Keep in sync with build-and-test.yml" marker below and docs/ci.md's Known coverage gaps.
+# Revisit trigger: if the wsl2-probe job's Probe A shows the env-file variables translate cleanly
+# AND Probe B shows the DrvFs checkout is usable without anomaly, reason 3 above dissolves and
+# reasons 1-2 become the only obstacles; parameterizing build-and-test.yml for a WSL2 shell input
+# becomes a defensible follow-up. That is a separate task, not a mid-flight rewrite of this file.
+#
+# No `actions/cache` anywhere in this workflow (D2): every run is a fully cold run, by design,
+# following from reason 1 above -- there is no host-visible path to key a cache on. `timeout-minutes`
+# below is sized for cold realization accordingly (see docs/ci.md's Timeouts table).
+#
+# Trigger: `workflow_dispatch` only, matching ci-macos.yml/ci-macos-gate.yml/ci-macos-recheck.yml's
+# "on request only" precedent -- NOT for a billing reason (this repository is public; standard
+# hosted runners are free here, see docs/ci.md's "macOS runs on request only"), but for runner
+# time: this is an exploratory, unproven leg validating a convenience install path, not a claim any
+# certificate depends on, and the demo milestone's direction is fewer workflows running
+# automatically, not more. See docs/ci.md's Windows section (next to "macOS runs on request only")
+# for the full rationale and the `gh workflow run` command.
+#
+# Second dispatch (run 35753474987): the curl/env-file fixes above worked -- wsl2-probe's Probe A,
+# B and C all produced real verdicts, and `build`'s Checkout/Set-up-WSL2/Install-Nix steps all
+# passed -- but every `nix develop` invocation on this runner (Probe C, Probe D, and `build`'s
+# `lake build`, which depends on `nix develop .#build`) failed identically: `nix-shell-env.drv`
+# depended on a `pkgs.runCommand` derivation that embedded its builder as a literal shell script
+# inside flake.nix, and that builder died with exit code 127, last log line
+# `/build/.attr-...: line 1: $'\r': command not found`. Root cause: this repository carried no
+# root .gitattributes, so `actions/checkout` on
+# the Windows runner inherited the image's `core.autocrlf=true` and checked flake.nix out with
+# CRLF line endings, corrupting the embedded builder script -- a checkout-normalization bug, not
+# a WSL2 or Nix capability limit, and independent of WSL2 itself (Probe C's `nix develop .#build`
+# failed the same way as `build`'s `lake build`). Fixed by adding a root `.gitattributes`
+# (`* text=auto eol=lf`, plus explicit `-text` entries for this repository's binary assets),
+# which forces LF on checkout regardless of the runner's core.autocrlf setting -- see that file's
+# own header for why a per-workflow `git config --global core.autocrlf false` step was considered
+# and not added in addition to it. This workflow's own job bodies needed no edit: the bug was in
+# what got checked out, not in any step here. A third dispatch, after this fix lands on a pushed
+# ref, is needed before Probe D (which never reached its systemd/Landlock checks) or any
+# `build`-job step past `lake build` can produce a verdict. See docs/ci.md's Known coverage gaps
+# and docs/setup-without-nix.md's Windows section for the current evidence-cited state.
+#
+# See docs/ci.md for the summary-table row, cost and timeout rationale; docs/setup-without-nix.md
+# for the documented path this workflow exercises.
+
+name: CI (Windows/WSL2)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Every run is a workflow_dispatch run and gets its own group keyed on github.run_id, so requested
+# runs never cancel each other -- the same pattern ci-macos.yml uses for its own dispatch-only group.
+concurrency:
+  group: ci-windows-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Answers every environment question the `build` job below depends on, before any build step
+  # relies on the answer being "yes". Never fails the workflow on an unfavorable verdict (D4): it
+  # reports, via ::notice::/::warning:: and a step summary table, so a first real run produces
+  # evidence rather than a guess baked into the job body.
+  wsl2-probe:
+    name: wsl2-probe (windows-2025)
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        id: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Ubuntu-24.04, matching this repository's existing ubuntu-24.04 Linux legs. wsl-version '2'
+      # is already the action's default; stated explicitly here so the choice is not implicit.
+      # Ubuntu-24.04+ ships its own default /etc/wsl.conf (the action's own documented warning);
+      # this repository needs only systemd=true added, and accepts overwriting whatever else that
+      # default file might have carried, since nothing else in this workflow depends on it.
+      - name: Set up WSL2 (Ubuntu-24.04, systemd enabled)
+        id: setup_wsl
+        uses: Vampire/setup-wsl@d1da7f2c0322a5ee4f24975344f67fc0f5baf364 # v7.0.0
+        with:
+          distribution: Ubuntu-24.04
+          wsl-version: "2"
+          wsl-conf: |
+            [boot]
+            systemd=true
+
+      # DeterminateSystems/nix-installer-action (used by every other leg) targets the runner's own
+      # OS and has no Windows support -- it cannot be redirected at WSL2 by a `shell:` override,
+      # since that only affects `run:` steps, not a `uses:` step (see this file's header, D1
+      # research). Nix is installed with a plain `run:` step under WSL2's `wsl-bash` shell instead,
+      # using the same non-interactive Determinate installer invocation docs/installation.md names
+      # for a non-Nix host, with --no-confirm for a unattended run.
+      - name: Install Nix inside WSL2 (Determinate Systems installer, non-interactive)
+        id: install_nix
+        shell: wsl-bash {0}
+        run: |
+          set -euo pipefail
+          curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install --no-confirm
+          # wsl-bash's non-interactive invocation may or may not source the installer's own
+          # profile.d script the way an interactive login shell would; every later `wsl-bash {0}`
+          # step in this workflow sources it defensively (a harmless no-op once nix is on PATH),
+          # rather than assuming shell-init picked it up.
+
+      # Every write below is attempted, never assumed: a failed write is caught, logged, and the
+      # verdict recorded through whichever channel just proved writable.
+      - name: "Probe A: environment plumbing (uname, pwd, GITHUB_WORKSPACE, env-file writability)"
+        id: probe_a
+        shell: wsl-bash {0}
+        run: |
+          set -uo pipefail
+          echo "::group::Probe A -- environment plumbing"
+          kernel_version="$(uname -r)"
+          echo "uname -a: $(uname -a)"
+          echo "WSL2 kernel version: ${kernel_version}"
+          echo "pwd: $(pwd)"
+
+          gh_workspace_reachable=no
+          if [ -n "${GITHUB_WORKSPACE:-}" ] && [ -d "${GITHUB_WORKSPACE}" ]; then
+            gh_workspace_reachable=yes
+          fi
+          echo "GITHUB_WORKSPACE reachable: ${gh_workspace_reachable} (value: ${GITHUB_WORKSPACE:-unset})"
+
+          gh_output_writable=no
+          if [ -n "${GITHUB_OUTPUT:-}" ] && { echo "probe_a_marker=1" >> "$GITHUB_OUTPUT"; } 2>/dev/null; then
+            gh_output_writable=yes
+          fi
+          echo "GITHUB_OUTPUT writable from WSL2: ${gh_output_writable}"
+
+          gh_env_writable=no
+          if [ -n "${GITHUB_ENV:-}" ] && { echo "PROBE_A_MARKER=1" >> "$GITHUB_ENV"; } 2>/dev/null; then
+            gh_env_writable=yes
+          fi
+          echo "GITHUB_ENV writable from WSL2: ${gh_env_writable}"
+
+          gh_summary_writable=no
+          if [ -n "${GITHUB_STEP_SUMMARY:-}" ] && { echo "(Probe A marker)" >> "$GITHUB_STEP_SUMMARY"; } 2>/dev/null; then
+            gh_summary_writable=yes
+          fi
+          echo "GITHUB_STEP_SUMMARY writable from WSL2: ${gh_summary_writable}"
+          echo "::endgroup::"
+
+          # Record every verdict through GITHUB_OUTPUT itself, but only once its own writability
+          # is already confirmed above -- never assumed.
+          if [ "$gh_output_writable" = yes ]; then
+            {
+              echo "kernel_version=${kernel_version}"
+              echo "gh_workspace_reachable=${gh_workspace_reachable}"
+              echo "gh_output_writable=${gh_output_writable}"
+              echo "gh_env_writable=${gh_env_writable}"
+              echo "gh_summary_writable=${gh_summary_writable}"
+            } >> "${GITHUB_OUTPUT:-}" 2>/dev/null || true
+          fi
+
+      - name: "Probe B: filesystem (checkout mount type, symlink and exec-bit round trip)"
+        id: probe_b
+        shell: wsl-bash {0}
+        run: |
+          set -uo pipefail
+          echo "::group::Probe B -- filesystem"
+          mount_type="$(stat -f -c %T . 2>/dev/null || echo unknown)"
+          echo "Checkout mount type (stat -f -c %T .): ${mount_type}"
+          df -T . 2>/dev/null || true
+          echo "::endgroup::"
+
+          probe_dir="$(mktemp -d)"
+          symlink_ok=no
+          if ln -s "$probe_dir" "$probe_dir/link" 2>/dev/null && [ -L "$probe_dir/link" ]; then
+            symlink_ok=yes
+          fi
+          echo "Symlink round trip: ${symlink_ok}"
+
+          exec_ok=no
+          touch "$probe_dir/exe"
+          chmod +x "$probe_dir/exe" 2>/dev/null || true
+          if [ -x "$probe_dir/exe" ]; then
+            exec_ok=yes
+          fi
+          echo "Executable-bit round trip: ${exec_ok}"
+          rm -rf "$probe_dir"
+
+          if [ "${{ steps.probe_a.outputs.gh_output_writable }}" = yes ]; then
+            {
+              echo "mount_type=${mount_type}"
+              echo "symlink_ok=${symlink_ok}"
+              echo "exec_ok=${exec_ok}"
+            } >> "${GITHUB_OUTPUT:-}" 2>/dev/null || true
+          fi
+
+      - name: "Probe C: Nix (nix --version, nix develop .#build realizes)"
+        id: probe_c
+        shell: wsl-bash {0}
+        run: |
+          set -uo pipefail
+          command -v nix > /dev/null 2>&1 || . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh 2>/dev/null || true
+          echo "::group::Probe C -- Nix"
+          nix_version="$(nix --version 2>&1)" || nix_version="nix --version failed: ${nix_version:-no nix on PATH}"
+          echo "nix --version: ${nix_version}"
+          build_shell_ok=no
+          if nix develop .#build --command true 2>&1; then
+            build_shell_ok=yes
+          fi
+          echo "nix develop .#build --command true: ${build_shell_ok}"
+          echo "::endgroup::"
+
+          if [ "${{ steps.probe_a.outputs.gh_output_writable }}" = yes ]; then
+            {
+              echo "nix_version=${nix_version}"
+              echo "build_shell_ok=${build_shell_ok}"
+            } >> "${GITHUB_OUTPUT:-}" 2>/dev/null || true
+          fi
+
+      # D4: reports only, never fails this step or the job -- `set +e` is deliberate, matching
+      # ci-macos-gate.yml's `--support-level` "loud warning, never a false failure" posture, not
+      # verify.yml's "absence here is a regression" posture. Tries without a linger step first
+      # (mirroring a fresh runner's default state), then with `loginctl enable-linger` (the step
+      # verify.yml's Linux `recheck` job needs), and reports both results separately -- this
+      # workflow does not yet know which one WSL2 needs, and asserting one would be a guess.
+      - name: "Probe D: recheck prerequisites (systemd, Landlock) -- report only, never fails"
+        id: probe_d
+        shell: wsl-bash {0}
+        run: |
+          set +e
+          command -v nix > /dev/null 2>&1 || . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh 2>/dev/null
+          echo "::group::Probe D -- recheck prerequisites"
+
+          probe_once() {
+            # shellcheck disable=SC2016
+            nix develop .#recheck --command bash -c '
+              set -uo pipefail
+              . framed_channel/scripts/lib/recheck-revs.sh
+              if recheck_systemd_user_usable; then echo systemd=usable; else echo systemd=unusable; fi
+              if command -v landrun > /dev/null 2>&1; then
+                if recheck_landlock_enforced; then echo landlock_enforced=yes; else echo landlock_enforced=no; fi
+                echo "landlock_abi=$(recheck_landlock_abi)"
+              else
+                echo "landlock_enforced=landrun-not-on-PATH"
+                echo "landlock_abi=landrun-not-on-PATH"
+              fi
+            ' 2>&1
+          }
+
+          echo "-- without a linger step --"
+          before="$(probe_once)"
+          echo "${before}"
+
+          echo "-- with loginctl enable-linger --"
+          if command -v loginctl > /dev/null 2>&1 && command -v sudo > /dev/null 2>&1; then
+            sudo loginctl enable-linger "$(id -u -n)" > /dev/null 2>&1 || echo "loginctl enable-linger failed"
+            for _ in $(seq 1 10); do
+              [ -S "/run/user/$(id -u)/bus" ] && break
+              sleep 1
+            done
+            export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+            after="$(probe_once)"
+          else
+            after="loginctl or sudo not available inside WSL2"
+          fi
+          echo "${after}"
+          echo "::endgroup::"
+
+          echo "::notice::Probe D without linger -- ${before//$'\n'/, }"
+          echo "::notice::Probe D with linger -- ${after//$'\n'/, }"
+
+          if [ -n "${GITHUB_OUTPUT:-}" ]; then
+            {
+              echo "before_linger<<PROBE_D_EOF"
+              echo "${before}"
+              echo "PROBE_D_EOF"
+              echo "after_linger<<PROBE_D_EOF"
+              echo "${after}"
+              echo "PROBE_D_EOF"
+            } >> "${GITHUB_OUTPUT:-}" 2>/dev/null || true
+          fi
+
+          exit 0
+
+      # Written from inside WSL2 only when Probe A confirmed GITHUB_STEP_SUMMARY is writable from
+      # there; otherwise the host-shell step immediately below writes it instead.
+      - name: Write step summary (from WSL2)
+        if: ${{ always() && steps.probe_a.outputs.gh_summary_writable == 'yes' }}
+        shell: wsl-bash {0}
+        run: |
+          {
+            echo "### wsl2-probe verdicts"
+            echo "| Probe | Result |"
+            echo "|---|---|"
+            echo "| A: GITHUB_WORKSPACE reachable | ${{ steps.probe_a.outputs.gh_workspace_reachable }} |"
+            echo "| A: GITHUB_OUTPUT writable from WSL2 | ${{ steps.probe_a.outputs.gh_output_writable }} |"
+            echo "| A: GITHUB_ENV writable from WSL2 | ${{ steps.probe_a.outputs.gh_env_writable }} |"
+            echo "| A: GITHUB_STEP_SUMMARY writable from WSL2 | ${{ steps.probe_a.outputs.gh_summary_writable }} |"
+            echo "| A: WSL2 kernel version | ${{ steps.probe_a.outputs.kernel_version }} |"
+            echo "| B: checkout mount type | ${{ steps.probe_b.outputs.mount_type }} |"
+            echo "| B: symlink round trip | ${{ steps.probe_b.outputs.symlink_ok }} |"
+            echo "| B: exec-bit round trip | ${{ steps.probe_b.outputs.exec_ok }} |"
+            echo "| C: nix --version | ${{ steps.probe_c.outputs.nix_version }} |"
+            echo "| C: nix develop .#build realizes | ${{ steps.probe_c.outputs.build_shell_ok }} |"
+            echo "| D: without linger | ${{ steps.probe_d.outputs.before_linger }} |"
+            echo "| D: with linger | ${{ steps.probe_d.outputs.after_linger }} |"
+          } >> "${GITHUB_STEP_SUMMARY:-}"
+
+      - name: Write step summary (host shell fallback -- GITHUB_STEP_SUMMARY unwritable from WSL2)
+        if: ${{ always() && steps.probe_a.outputs.gh_summary_writable != 'yes' }}
+        run: |
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "### wsl2-probe verdicts (written from the Windows host: GITHUB_STEP_SUMMARY was not writable from inside WSL2)"
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "| Probe | Result |"
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "|---|---|"
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "| A: GITHUB_WORKSPACE reachable | ${{ steps.probe_a.outputs.gh_workspace_reachable }} |"
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "| A: GITHUB_OUTPUT writable from WSL2 | ${{ steps.probe_a.outputs.gh_output_writable }} |"
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "| A: GITHUB_ENV writable from WSL2 | ${{ steps.probe_a.outputs.gh_env_writable }} |"
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "| A: GITHUB_STEP_SUMMARY writable from WSL2 | ${{ steps.probe_a.outputs.gh_summary_writable }} |"
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "| A: WSL2 kernel version | ${{ steps.probe_a.outputs.kernel_version }} |"
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "| B: checkout mount type | ${{ steps.probe_b.outputs.mount_type }} |"
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "| B: symlink round trip | ${{ steps.probe_b.outputs.symlink_ok }} |"
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "| B: exec-bit round trip | ${{ steps.probe_b.outputs.exec_ok }} |"
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "| C: nix --version | ${{ steps.probe_c.outputs.nix_version }} |"
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "| C: nix develop .#build realizes | ${{ steps.probe_c.outputs.build_shell_ok }} |"
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "| D: without linger | ${{ steps.probe_d.outputs.before_linger }} |"
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "| D: with linger | ${{ steps.probe_d.outputs.after_linger }} |"
+
+  # Mirrors build-and-test.yml's command set inside WSL2 (D1). Deliberately NOT `needs:
+  # [wsl2-probe]`: the probe's findings are diagnostic, not gating (D4's "report, never hard-fail"
+  # posture extends to the relationship between these two jobs too), so `build` runs independently
+  # and both jobs' results are read together from the same workflow run.
+  #
+  # No actions/cache and no ./.github/actions/* composite-action steps here (D1, D2) -- this is
+  # deliberate, not an oversight: see this file's header for why. A future reader must not
+  # "helpfully" add caching here; it would silently cache Windows-host paths that do not survive
+  # into the next WSL2-side run.
+  #
+  # Keep in sync with build-and-test.yml: the command steps below are a hand-maintained mirror of
+  # that file's steps (D1 point 4). Drift between the two is an accepted, declared risk -- see
+  # docs/ci.md's Known coverage gaps for the named follow-up (a mechanical drift-check fixture).
+  build:
+    name: build (windows-2025, WSL2)
+    runs-on: windows-2025
+    # Sized for a fully cold run on every leg (D2: no cache, ever): build-and-test.yml's warm
+    # macOS leg alone measured about 8 minutes cold; this leg additionally pays WSL2 provisioning
+    # and a from-scratch Nix install, so 60 minutes leaves substantial headroom.
+    timeout-minutes: 60
+    steps:
+      - name: Checkout repository
+        id: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up WSL2 (Ubuntu-24.04, systemd enabled)
+        id: setup_wsl
+        uses: Vampire/setup-wsl@d1da7f2c0322a5ee4f24975344f67fc0f5baf364 # v7.0.0
+        with:
+          distribution: Ubuntu-24.04
+          wsl-version: "2"
+          wsl-conf: |
+            [boot]
+            systemd=true
+
+      - name: Install Nix inside WSL2 (Determinate Systems installer, non-interactive)
+        id: install_nix
+        shell: wsl-bash {0}
+        run: |
+          set -euo pipefail
+          curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install --no-confirm
+
+      # D3: operates directly on the checkout as `actions/checkout` and setup-wsl leave it (DrvFs,
+      # under /mnt/... inside WSL2) -- no relocation step here. This is a deliberate first attempt,
+      # not an oversight: relocating into WSL2's native filesystem (e.g. ~/work) before any
+      # Nix-driven step is the named escape hatch if a real run shows a DrvFs anomaly (permission
+      # bits, symlinks, case sensitivity), per the wsl2-probe job's Probe B. Its presence or
+      # absence here is itself a finding worth recording once that run exists (docs/ci.md,
+      # docs/setup-without-nix.md); do not add it pre-emptively.
+
+      - name: lake build (cd framed_channel/lean && lake build)
+        id: lake_build
+        shell: wsl-bash {0}
+        run: |
+          set -euo pipefail
+          command -v nix > /dev/null 2>&1 || . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh 2>/dev/null || true
+          nix develop .#build --command bash -c 'cd framed_channel/lean && lake build'
+
+      - name: cargo test (cd framed_channel/rust && cargo test)
+        id: cargo_test
+        shell: wsl-bash {0}
+        run: |
+          set -euo pipefail
+          command -v nix > /dev/null 2>&1 || . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh 2>/dev/null || true
+          nix develop .#build --command bash -c 'cd framed_channel/rust && cargo test'
+
+      - name: check.sh --core-only (core pre-check; not the verification gate, see verify.yml)
+        id: core_precheck
+        shell: wsl-bash {0}
+        run: |
+          set -euo pipefail
+          command -v nix > /dev/null 2>&1 || . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh 2>/dev/null || true
+          echo "::group::nix develop .#build --command bash framed_channel/check.sh --core-only"
+          rc=0
+          nix develop .#build --command bash framed_channel/check.sh --core-only || rc=$?
+          if [ "$rc" -ne 3 ]; then
+            echo "::error::check.sh --core-only exited $rc; the pre-check ends INCOMPLETE (exit 3) by design, and an exit 0 here would mean check.sh claimed PASS without the bridge"
+            exit 1
+          fi
+          echo "::endgroup::"
+
+      - name: framed_channel/tests/approvals/run.sh
+        id: test_approvals
+        shell: wsl-bash {0}
+        run: |
+          set -euo pipefail
+          command -v nix > /dev/null 2>&1 || . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh 2>/dev/null || true
+          nix develop .#build --command bash framed_channel/tests/approvals/run.sh
+
+      - name: framed_channel/tests/certificate-identity/run.sh
+        id: test_certificate_identity
+        shell: wsl-bash {0}
+        run: |
+          set -euo pipefail
+          command -v nix > /dev/null 2>&1 || . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh 2>/dev/null || true
+          nix develop .#build --command bash framed_channel/tests/certificate-identity/run.sh
+
+      - name: framed_channel/tests/adopt-recheck/run.sh
+        id: test_adopt_recheck
+        shell: wsl-bash {0}
+        run: |
+          set -euo pipefail
+          command -v nix > /dev/null 2>&1 || . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh 2>/dev/null || true
+          nix develop .#build --command bash framed_channel/tests/adopt-recheck/run.sh
+
+      - name: framed_channel/tests/ladder/run.sh
+        id: test_ladder
+        shell: wsl-bash {0}
+        run: |
+          set -euo pipefail
+          command -v nix > /dev/null 2>&1 || . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh 2>/dev/null || true
+          nix develop .#build --command bash framed_channel/tests/ladder/run.sh
+
+      - name: framed_channel/tests/layer/run.sh
+        id: test_layer
+        shell: wsl-bash {0}
+        run: |
+          set -euo pipefail
+          command -v nix > /dev/null 2>&1 || . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh 2>/dev/null || true
+          nix develop .#build --command bash framed_channel/tests/layer/run.sh
+
+      - name: framed_channel/tests/spdx/run.sh
+        id: test_spdx
+        shell: wsl-bash {0}
+        run: |
+          set -euo pipefail
+          command -v nix > /dev/null 2>&1 || . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh 2>/dev/null || true
+          nix develop .#build --command bash framed_channel/tests/spdx/run.sh
+
+      - name: framed_channel/tests/ci-docs-coherence/run.sh
+        id: test_ci_docs_coherence
+        shell: wsl-bash {0}
+        run: |
+          set -euo pipefail
+          command -v nix > /dev/null 2>&1 || . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh 2>/dev/null || true
+          nix develop .#build --command bash framed_channel/tests/ci-docs-coherence/run.sh
+
+      - name: framed_channel/tests/aeneas-revs/run.sh
+        id: test_aeneas_revs
+        shell: wsl-bash {0}
+        run: |
+          set -euo pipefail
+          command -v nix > /dev/null 2>&1 || . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh 2>/dev/null || true
+          nix develop .#build --command bash framed_channel/tests/aeneas-revs/run.sh
+
+      - name: framed_channel/tests/recheck-revs/run.sh
+        id: test_recheck_revs
+        shell: wsl-bash {0}
+        run: |
+          set -euo pipefail
+          command -v nix > /dev/null 2>&1 || . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh 2>/dev/null || true
+          nix develop .#build --command bash framed_channel/tests/recheck-revs/run.sh
+
+      - name: framed_channel/tests/recheck-record/run.sh
+        id: test_recheck_record
+        shell: wsl-bash {0}
+        run: |
+          set -euo pipefail
+          command -v nix > /dev/null 2>&1 || . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh 2>/dev/null || true
+          nix develop .#build --command bash framed_channel/tests/recheck-record/run.sh
+
+      # Stubs nix entirely (see the fixture's own header), so this needs only jq and bash from
+      # the shell -- never a real Nix build or fetch.
+      - name: framed_channel/tests/full-gate/run.sh
+        id: test_full_gate
+        shell: wsl-bash {0}
+        run: |
+          set -euo pipefail
+          command -v nix > /dev/null 2>&1 || . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh 2>/dev/null || true
+          nix develop .#build --command bash framed_channel/tests/full-gate/run.sh
+
+      - name: framed_channel/tests/bump-pin/run.sh
+        id: test_bump_pin
+        shell: wsl-bash {0}
+        run: |
+          set -euo pipefail
+          command -v nix > /dev/null 2>&1 || . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh 2>/dev/null || true
+          nix develop .#build --command bash framed_channel/tests/bump-pin/run.sh
+
+      - name: framed_channel/tests/lean-toolchain-pin/run.sh
+        id: test_lean_toolchain_pin
+        shell: wsl-bash {0}
+        run: |
+          set -euo pipefail
+          command -v nix > /dev/null 2>&1 || . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh 2>/dev/null || true
+          nix develop .#build --command bash framed_channel/tests/lean-toolchain-pin/run.sh
+
+      - name: framed_channel/tests/cert-freshness/run.sh
+        id: test_cert_freshness
+        shell: wsl-bash {0}
+        run: |
+          set -euo pipefail
+          command -v nix > /dev/null 2>&1 || . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh 2>/dev/null || true
+          nix develop .#build --command bash framed_channel/tests/cert-freshness/run.sh
+
+      # Linux-only by nature (the shim is); under WSL2 (x86_64-linux) it runs for real, unlike the
+      # macOS leg where it reports a skip and exits 0.
+      - name: framed_channel/tests/landrun-shim/run.sh
+        id: test_landrun_shim
+        shell: wsl-bash {0}
+        run: |
+          set -euo pipefail
+          command -v nix > /dev/null 2>&1 || . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh 2>/dev/null || true
+          nix develop .#build --command bash framed_channel/tests/landrun-shim/run.sh
+
+      # 2026-09-22 run 35752188098 finding: this step previously referenced $GITHUB_STEP_SUMMARY
+      # unguarded. wsl-bash's shell evaluates with -u in effect, so on a fresh WSL2 install where
+      # the env-file vars are not propagated in (see the header's D1 point 3 and the wsl2-probe
+      # job's Probe A), an unset reference aborts the script immediately -- before the `|| echo`
+      # fallback below ever runs. The `${VAR:-}` guard here (and on every other $GITHUB_OUTPUT /
+      # $GITHUB_ENV / $GITHUB_STEP_SUMMARY reference in this file) turns that abort into an
+      # ordinary failed redirect, which the fallback then reports instead of the job dying with no
+      # verdict at all.
+      - name: Write step summary
+        if: always()
+        shell: wsl-bash {0}
+        run: |
+          set -uo pipefail
+          {
+            echo "### build (windows-2025, WSL2)"
+            echo "| Step | Outcome |"
+            echo "|---|---|"
+            echo "| lake build | ${{ steps.lake_build.outcome }} |"
+            echo "| cargo test | ${{ steps.cargo_test.outcome }} |"
+            echo "| check.sh --core-only | ${{ steps.core_precheck.outcome }} |"
+            echo "| approvals | ${{ steps.test_approvals.outcome }} |"
+            echo "| certificate-identity | ${{ steps.test_certificate_identity.outcome }} |"
+            echo "| adopt-recheck | ${{ steps.test_adopt_recheck.outcome }} |"
+            echo "| ladder | ${{ steps.test_ladder.outcome }} |"
+            echo "| layer | ${{ steps.test_layer.outcome }} |"
+            echo "| spdx | ${{ steps.test_spdx.outcome }} |"
+            echo "| ci-docs-coherence | ${{ steps.test_ci_docs_coherence.outcome }} |"
+            echo "| aeneas-revs | ${{ steps.test_aeneas_revs.outcome }} |"
+            echo "| recheck-revs | ${{ steps.test_recheck_revs.outcome }} |"
+            echo "| recheck-record | ${{ steps.test_recheck_record.outcome }} |"
+            echo "| full-gate | ${{ steps.test_full_gate.outcome }} |"
+            echo "| bump-pin | ${{ steps.test_bump_pin.outcome }} |"
+            echo "| lean-toolchain-pin | ${{ steps.test_lean_toolchain_pin.outcome }} |"
+            echo "| cert-freshness | ${{ steps.test_cert_freshness.outcome }} |"
+            echo "| landrun-shim | ${{ steps.test_landrun_shim.outcome }} |"
+          } >> "${GITHUB_STEP_SUMMARY:-}" 2>/dev/null || echo "GITHUB_STEP_SUMMARY unwritable from WSL2 in this job; per-step outcomes are still visible in the Actions UI."

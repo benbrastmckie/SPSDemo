@@ -1,0 +1,179 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# tests/approvals/run.sh -- fixture tests for check-approvals.sh and approve.sh --record's refusals.
+#
+# Every fixture is checked in a temporary directory against its own candidate file and spec-check
+# records, so no case touches certificate/approvals.yaml. `{{SOURCE_SHA256}}` and
+# `{{CANDIDATES_SHA256}}` in a fixture become today's digests. approve.sh runs only from a scratch
+# copy of the scripts, with no controlling terminal: without --agent, with an --agent approver not
+# named "(agent)", and with --agent but no Notes, it must refuse and write nothing.
+#
+# Also covers source_sha256's version-independence (approval-digests.sh's
+# cargo_version_normalized_sha256, on a throwaway rust/ tree, never the real repository's): a
+# root-package version bump (in Cargo.toml and Cargo.lock together) leaves it unchanged; a
+# dependency version bump or an edition change both change it.
+#
+# Usage: bash tests/approvals/run.sh [-h | --help]      (from any directory)
+# Requires: bash >= 4.4, coreutils, awk; setsid (optional).
+# Exit: 0 every case behaves as recorded, 1 otherwise, 2 usage error.
+
+set -u
+
+case "${1:-}" in
+  "") ;;
+  -h|--help) awk 'NR > 2 && !/^#/ { exit } NR > 2 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;;
+  *) echo "run.sh: unknown argument '$1' (try --help)" >&2; exit 2 ;;
+esac
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+EX="$(cd "$HERE/../.." && pwd)"
+# shellcheck source=SCRIPTDIR/../../scripts/lib/approval-digests.sh
+. "$EX/scripts/lib/approval-digests.sh"
+
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+
+src="$(source_sha256 "$EX")" || { echo "run.sh: cannot digest rust/" >&2; exit 1; }
+cand="$(sha256sum "$HERE/candidates.txt" | cut -d' ' -f1)"
+
+# case|fixture (or "-" for an absent file)|records|expected exit|expected output fragment|extra args
+CASES=(
+  "current|current.yaml|spec.records|0|selection current"
+  "current, bridge not checked|current.yaml|spec-core-only.records|0|bridge records NOT CHECKED"
+  "absent|-|spec.records|1|does not exist"
+  "stale specification|stale-spec.yaml|spec.records|1|FramedChannelChallenge.Varint is stale"
+  "stale source|stale-source.yaml|spec.records|1|the Rust changed since it was approved"
+  "missing specification record|missing-spec.yaml|spec.records|1|no specification record for FramedChannelChallenge.Varint"
+  "missing selection record|missing-selection.yaml|spec.records|1|no selection record"
+  "selected and declined overlap|overlap.yaml|spec.records|1|is both selected and declined"
+  "selected but unspecified|unreached-selected.yaml|spec.records|1|is selected, but no registered statement is about it"
+  "undecided candidate|undecided.yaml|spec.records|1|is neither selected nor declined"
+  "bad approver and date|bad-approver.yaml|spec.records|1|is not a YYYY-MM-DD date"
+  "unknown Challenge module|unknown-module.yaml|spec.records|1|which is not a Challenge module"
+  "malformed file|malformed.yaml|spec.records|1|does not have the recorded shape"
+  "missing by|missing-by.yaml|spec.records|1|must have exactly one by"
+  "agent records accepted by default|agent.yaml|spec.records|0|1 by an agent"
+  "agent records refused with --require-person|agent.yaml|spec.records|1|approved by an agent|--require-person"
+  "agent record with a person's name|agent-mislabelled.yaml|spec.records|1|has by 'agent' but approver"
+)
+
+failures=0
+for entry in "${CASES[@]}"; do
+  IFS='|' read -r name fixture records want_rc want_text extra <<< "$entry"
+  target="$work/approvals.yaml"
+  rm -f "$target"
+  if [ "$fixture" != "-" ]; then
+    sed -e "s/{{SOURCE_SHA256}}/$src/" -e "s/{{CANDIDATES_SHA256}}/$cand/" "$HERE/$fixture" > "$target"
+  fi
+  out="$(bash "$EX/scripts/check-approvals.sh" "$target" --spec-records "$HERE/$records" \
+           --candidates "$HERE/candidates.txt" ${extra:+"$extra"} 2>&1)"
+  rc=$?
+  if [ "$rc" -eq "$want_rc" ] && grep -qF -- "$want_text" <<< "$out"; then
+    echo "[ok] $name (exit $rc)"
+  else
+    echo "[FAIL] $name: exit $rc (expected $want_rc), output fragment '$want_text' $(grep -qF -- "$want_text" <<< "$out" && echo found || echo missing)"
+    sed 's/^/    /' <<< "$out"
+    failures=$((failures + 1))
+  fi
+done
+
+# ------------------------------------------------------------ source_sha256 version-independence
+# A throwaway tree with a realistic rust/src/lib.rs, rust/Cargo.toml ([package] + one
+# [dependencies] entry) and rust/Cargo.lock (the format preamble, the root framed_channel
+# [[package]] block, and a second [[package]] block for a fabricated dependency) -- never the
+# real repository's rust/. Each case mutates its own throwaway copy.
+srcbase="$work/srcbase"
+mkdir -p "$srcbase/rust/src"
+echo 'pub fn noop() {}' > "$srcbase/rust/src/lib.rs"
+cat > "$srcbase/rust/Cargo.toml" <<'EOF'
+[package]
+name = "framed_channel"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.95.0"
+
+[dependencies]
+fixturedep = "1.0"
+EOF
+cat > "$srcbase/rust/Cargo.lock" <<'EOF'
+# This file is automatically @generated by Cargo.
+# It is not intended for manual editing.
+version = 4
+
+[[package]]
+name = "framed_channel"
+version = "0.1.0"
+dependencies = [
+ "fixturedep",
+]
+
+[[package]]
+name = "fixturedep"
+version = "2.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "deadbeef"
+EOF
+srcbase_digest="$(source_sha256 "$srcbase")" || { echo "run.sh: cannot digest srcbase" >&2; exit 1; }
+
+# source_case NAME EXPECT(same|changed) MUTATE_FN : copy $srcbase to a fresh case dir, run
+# MUTATE_FN inside its rust/ directory, recompute source_sha256, and compare against
+# $srcbase_digest per EXPECT.
+source_case() {
+  local name="$1" expect_mode="$2"; shift 2
+  local casedir digest
+  casedir="$work/srccase-$(printf '%s' "$name" | tr -c 'a-zA-Z0-9' '_')"
+  rm -rf "$casedir"
+  cp -r "$srcbase" "$casedir"
+  ( cd "$casedir/rust" && "$@" )
+  digest="$(source_sha256 "$casedir")" || { echo "[FAIL] $name: source_sha256 failed"; failures=$((failures + 1)); return; }
+  if { [ "$expect_mode" = same ] && [ "$digest" = "$srcbase_digest" ]; } || \
+     { [ "$expect_mode" = changed ] && [ "$digest" != "$srcbase_digest" ]; }; then
+    echo "[ok] source_sha256: $name ($expect_mode)"
+  else
+    echo "[FAIL] source_sha256: $name: digest was $digest, base was $srcbase_digest (expected $expect_mode)"
+    failures=$((failures + 1))
+  fi
+}
+
+src_bump_root_version() { sed -i 's/^version = "0.1.0"$/version = "8.8.8"/' Cargo.toml Cargo.lock; }
+src_bump_dependency_version() { sed -i 's/^version = "2.3.4"$/version = "2.3.5"/' Cargo.lock; }
+src_change_edition() { sed -i 's/^edition = "2021"$/edition = "2024"/' Cargo.toml; }
+
+source_case "root-version bump (Cargo.toml and Cargo.lock)" same src_bump_root_version
+source_case "dependency (fixturedep) version bump" changed src_bump_dependency_version
+source_case "edition change" changed src_change_edition
+
+# approve.sh: with no controlling terminal it must refuse before computing or writing anything.
+fake="$work/fake-ex"
+mkdir -p "$fake/certificate" "$fake/scripts/lib"
+cp "$EX/approve.sh" "$fake/"
+cp "$EX/scripts/lib/approval-digests.sh" "$EX/scripts/lib/packages.sh" "$fake/scripts/lib/"
+printf '## Decisions\n\n```\nyes  spec  FramedChannelChallenge.RingBuffer  spec_digest=1\n```\n' > "$work/review.md"
+refusals=(
+  "--record $work/review.md --approver \"Test Person <test@example.org>\" --aeneas"
+  "--record $work/review.md --aeneas"
+  "--record $work/missing.md --approver \"Test Person <test@example.org>\" --aeneas"
+  "--record $work/review.md --approver \"Test Person <test@example.org>\" --agent --aeneas"
+  "--record $work/review.md --approver \"Test Agent (agent) <agent@example.org>\" --agent --aeneas"
+)
+for args in "${refusals[@]}"; do
+  if command -v setsid > /dev/null 2>&1; then
+    out="$(eval setsid -w bash "$fake/approve.sh" "$args" < /dev/null 2>&1)"
+  else
+    out="$(eval bash "$fake/approve.sh" "$args" < /dev/null 2>&1)"
+  fi
+  rc=$?
+  if [ "$rc" -ne 0 ] && [ ! -e "$fake/certificate/approvals.yaml" ] && grep -q 'refusing' <<< "$out"; then
+    echo "[ok] approve.sh $args refuses (exit $rc) and writes nothing"
+  else
+    echo "[FAIL] approve.sh $args: exit $rc; approvals.yaml $( [ -e "$fake/certificate/approvals.yaml" ] && echo WRITTEN || echo absent )"
+    sed 's/^/    /' <<< "$out"
+    failures=$((failures + 1))
+  fi
+done
+
+if [ $failures -ne 0 ]; then
+  echo "tests/approvals: $failures case(s) failed"
+  exit 1
+fi
+echo "tests/approvals: all ${#CASES[@]} check-approvals.sh cases and ${#refusals[@]} approve.sh refusals pass"

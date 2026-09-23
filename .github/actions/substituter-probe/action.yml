@@ -1,0 +1,45 @@
+# substituter-probe -- the one place that runs nix/heavy-build-probe.sh's heavy_probe against a
+# resolved dev shell and fails loudly, naming the offending store paths, if charon or aeneas would
+# be built from source. Used by verify.yml's four legs and fresh-clone-canary.yml's gate=full
+# legs.
+#
+# Preconditions (the caller's job, in this order):
+#   1. the repository is checked out (nix/heavy-build-probe.sh and the flake it probes must exist);
+#   2. Nix is installed.
+#
+# Fails fast, naming the offending path, before the caller's own gate step runs a from-source
+# charon/aeneas build that would cost ~30 min/~12 GiB no hosted runner budgets for by default.
+# Redundant with (never a substitute for) full-gate.sh's own internal heavy_probe call on the
+# `full-gate.sh`-driven legs -- kept for step-sequence parity and this step's own summary
+# observability. Comparator/landrun/lean-toolchain-bin local builds (PROBE_MINOR, a subset of
+# PROBE_PREBUILT) are a ::notice::, never an ::error::: they cost minutes, not hours, and are
+# expected on the recheck shell and on a fresh, cold clone.
+#
+# See nix/heavy-build-probe.sh's own header for the PROBE_* variable contract this action
+# consumes, and docs/ci.md for the cache/cost rationale a from-source build would blow.
+
+name: substituter-probe
+description: >-
+  Run heavy_probe (nix/heavy-build-probe.sh) against a resolved dev shell and fail loudly if
+  charon or aeneas would be built from source. Requires a checked-out repository and an installed
+  Nix before it runs.
+
+inputs:
+  shell-attr:
+    description: "Flake devShell attribute to probe, e.g. devShells.x86_64-linux.extraction"
+    required: true
+  context:
+    description: "Optional clause appended to messages, e.g. 'on a fresh, cold clone'"
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: "Substituter probe (heavy_probe: ${{ inputs.shell-attr }})"
+      id: probe
+      shell: bash
+      env:
+        PROBE_SHELL_ATTR: ${{ inputs.shell-attr }}
+        PROBE_CONTEXT: ${{ inputs.context }}
+      run: bash "$GITHUB_ACTION_PATH/probe.sh"

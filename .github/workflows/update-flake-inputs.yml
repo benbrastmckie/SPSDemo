@@ -1,0 +1,177 @@
+# update-flake-inputs.yml -- weekly proposal to relock nixpkgs and rust-overlay, the only two
+# flake inputs safe to bump automatically (confirmed against this flake's own input list --
+# `nix flake metadata --json | jq '.locks.nodes.root.inputs'` names exactly `{aeneas, nixpkgs,
+# rust-overlay}`). The `aeneas` input is deliberately never touched here: it is the exclusive
+# responsibility of nix/bump-aeneas-pin.sh (see update-aeneas-pin.yml), which applies its own
+# "middle rule" (30-day cap) search rather than a plain `nix flake update`.
+#
+# Modeled structurally on update-aeneas-pin.yml: same pinned Action SHAs, a fixed (never per-ref)
+# concurrency group, `peter-evans/create-pull-request` with only the repository's own
+# GITHUB_TOKEN -- no account, cache or secret beyond that. Unlike the Aeneas pin bump, this
+# workflow runs a plain `nix flake update`, then gates the relocked tree FOR REAL before ever
+# proposing it: a nixpkgs bump can move the Lean/Rust toolchain closures `check.sh` depends on, so
+# `nix flake check --all-systems` plus a real `bash full-gate.sh --yes` run must both pass before
+# a PR is opened. No PR is opened when the gate fails -- the run's own step summary still records
+# what was attempted.
+#
+# GITHUB_TOKEN limitation (same as update-aeneas-pin.yml): a PR opened with the default
+# GITHUB_TOKEN does NOT start this repository's other pull_request workflows on its own. Their
+# runs are created but held at "Action required" until a maintainer approves them (observed on
+# this workflow's first PR). Until then this run's own in-job gate is the only automated
+# confirmation the PR carries.
+#
+# No auto-merge, ever: this workflow only opens a PR. See update-aeneas-pin.yml's header comment.
+# A human decides what merges, always.
+
+name: Update flake inputs
+
+on:
+  schedule:
+    - cron: "0 6 * * 3" # weekly, Wednesday 06:00 UTC -- offset from update-aeneas-pin.yml's
+      # Monday run so the two proposals never land, and never gate, on the same day.
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: update-flake-inputs-${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  update-flake-inputs:
+    name: Propose a nixpkgs/rust-overlay relock
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout repository
+        id: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Frees disk for a from-scratch nixpkgs evaluation plus the full gate's own build/fetch
+      # footprint (same rationale as update-aeneas-pin.yml's use of this action).
+      - name: Free runner disk space (jlumbroso/free-disk-space)
+        id: free_disk
+        uses: jlumbroso/free-disk-space@ceedf095f4ec1a097402bc6bd80831f2e1a6fde6 # v2.0.0
+        with:
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: false
+          docker-images: false
+
+      # No extra substituter or trust configuration needed: cache.nixos.org is the only
+      # substituter this job uses.
+      - name: Install Nix (DeterminateSystems/nix-installer-action)
+        id: install_nix
+        uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+
+      - name: Configure git identity for the relock commit
+        id: git_identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Record the before-relock lock state
+        id: before
+        run: |
+          set -euo pipefail
+          # Resolve the root flake's own "nixpkgs" input to whichever node name it currently
+          # points at (flake.lock renumbers node names like "nixpkgs_4" across relocks), then read
+          # that node's locked rev -- never hardcode a node name.
+          nixpkgs_before="$(jq -r '.nodes[.nodes.root.inputs.nixpkgs].locked.rev' flake.lock)"
+          echo "nixpkgs_before=$nixpkgs_before" >> "$GITHUB_OUTPUT"
+
+      - name: nix flake update nixpkgs rust-overlay
+        id: relock
+        run: |
+          set -euo pipefail
+          # Never names 'aeneas' here -- that input is owned exclusively by
+          # nix/bump-aeneas-pin.sh's middle-rule algorithm (update-aeneas-pin.yml).
+          nix flake update nixpkgs rust-overlay
+          if git diff --quiet -- flake.lock; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: nix flake check --all-systems (relocked tree)
+        id: flake_check
+        if: steps.relock.outputs.changed == 'true'
+        run: nix flake check --all-systems
+
+      - name: bash full-gate.sh --yes (relocked tree, x86_64-linux)
+        id: full_gate
+        if: steps.relock.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          bash full-gate.sh --support-level | tee /tmp/support-level.txt
+          bash full-gate.sh --yes
+
+      - name: Write step summary
+        if: always()
+        run: |
+          {
+            echo "### Update flake inputs"
+            echo "- nixpkgs before: \`${{ steps.before.outputs.nixpkgs_before }}\`"
+            echo "- flake.lock changed: \`${{ steps.relock.outputs.changed || 'unknown' }}\`"
+            if [ -f /tmp/support-level.txt ]; then
+              echo '```'
+              cat /tmp/support-level.txt
+              echo '```'
+            fi
+            if [ "${{ steps.relock.outputs.changed }}" = "true" ]; then
+              echo "- \`nix flake check --all-systems\`: ${{ steps.flake_check.outcome || 'not run' }}"
+              echo "- \`bash full-gate.sh --yes\`: ${{ steps.full_gate.outcome || 'not run' }}"
+            else
+              echo "- no change: nixpkgs and rust-overlay are already at their newest lockable revision"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Build the PR body
+        if: steps.relock.outputs.changed == 'true' && steps.full_gate.outcome == 'success'
+        id: pr_body
+        run: |
+          set -euo pipefail
+          nixpkgs_after="$(jq -r '.nodes[.nodes.root.inputs.nixpkgs].locked.rev' flake.lock)"
+          {
+            echo "Automated relock of \`nixpkgs\` and \`rust-overlay\` (\`nix flake update nixpkgs rust-overlay\`)."
+            echo
+            echo "- nixpkgs: \`${{ steps.before.outputs.nixpkgs_before }}\` -> \`$nixpkgs_after\`"
+            echo
+            echo "Gated in-job before this PR was opened: \`nix flake check --all-systems\` and a real"
+            echo "\`bash full-gate.sh --yes\` run on x86_64-linux, both green (see this run's step summary"
+            echo "for the resolved \`--support-level\` route)."
+            echo
+            echo "### Maintainer checklist"
+            echo "- [ ] Run \`bash full-gate.sh --recheck --yes\` locally (this workflow does not run"
+            echo "      --recheck; a nixpkgs bump can move the Comparator/landrun build closure too)."
+            echo "- [ ] Approve this PR's held CI runs and confirm they are green before merging -- this PR"
+            echo "      was opened with GITHUB_TOKEN, so its runs wait at \"Action required\" for a"
+            echo "      maintainer (see this workflow's header comment)."
+            echo "- [ ] Re-approve any stale item (\`bash framed_channel/approve.sh --review --aeneas\`) --"
+            echo "      the certificate itself is already regenerated by the gate above and committed"
+            echo "      to this PR (see add-paths), so only the human judgment is outstanding."
+            echo "- [ ] Merge only after the above are green. No auto-merge is configured anywhere."
+          } > /tmp/pr-body.md
+          echo "nixpkgs_after=$nixpkgs_after" >> "$GITHUB_OUTPUT"
+
+      - name: Open the pull request (peter-evans/create-pull-request)
+        if: steps.relock.outputs.changed == 'true' && steps.full_gate.outcome == 'success'
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "task: relock nixpkgs/rust-overlay to ${{ steps.pr_body.outputs.nixpkgs_after }}"
+          branch: bot/flake-inputs-${{ github.run_number }}
+          delete-branch: true
+          title: "task: relock nixpkgs/rust-overlay to ${{ steps.pr_body.outputs.nixpkgs_after }}"
+          body-path: /tmp/pr-body.md
+          add-paths: |
+            flake.lock
+            framed_channel/certificate/axioms.txt
+            framed_channel/certificate/countermodels.txt
+            framed_channel/certificate/digests.txt
+            framed_channel/certificate/ladder.txt

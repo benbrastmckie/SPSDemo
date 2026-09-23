@@ -1,0 +1,133 @@
+# The light macOS legs: the macos-26 leg of the build-and-test job (build-and-test.yml, the same
+# reusable job body ci.yml calls for both Linux architectures), the bash 3.2 launcher fixture on
+# both darwin architectures, and the darwin re-sign check of the prebuilt charon/aeneas package. A
+# few minutes each.
+#
+# On request only. macOS runners are billed at a multiple of the Linux rate wherever GitHub
+# Actions minutes are metered (a private repository or fork): no macOS job runs on push, pull_request or
+# schedule. `workflow_dispatch` is the only trigger; docs/ci.md's Trigger policy has the full list
+# of on-request workflows and the command that requests each.
+#   gh workflow run ci-macos.yml --ref <branch>
+# It is a separate file from ci.yml so that the "CI" badge and its Linux checks never depend on a
+# macOS runner.
+#
+# The two heavy macOS jobs live in their own workflow files, requested the same way:
+# ci-macos-gate.yml (`aeneas-gate`, the full proof gate on aarch64-darwin) and
+# ci-macos-recheck.yml (`recheck-kernel`, the macOS kernel replay). docs/ci.md's Cost section has
+# the measured durations.
+#
+# Cache note: this workflow's elan/lake-core keys are parameterized on runner.os/runner.arch,
+# so no key is ever shared with or evicted by a Linux leg.
+#
+# launcher-compat (every run of this workflow, both darwin architectures, no Nix, under a minute):
+# runs framed_channel/tests/launcher-compat/run.sh with the stock /bin/bash 3.2.57, the one
+# interpreter no Nix shell and no Linux runner can reproduce. full-gate.sh and install.sh are the
+# two scripts a user runs BEFORE any Nix shell exists, so they must work there; this job is the
+# fixture that would have caught a bash-4-only construct in either (it once shipped: a
+# `bash >= 4.4` guard made `bash full-gate.sh` exit 2 in 0.1 s on macOS). On macos-15-intel it is
+# also x86_64-darwin's only executed (not merely evaluated) check outside the fresh-clone canary.
+#
+# aeneas-prebuilt (no `if:` of its own, so it runs on every dispatch of this workflow file; no
+# `build`-job dependency, no Lean core/bridge steps): the only runtime check of the darwin re-sign path in nix/aeneas-prebuilt.nix (the
+# static Mach-O/load-command inspection done at pin-bump time cannot itself confirm the
+# install_name_tool rewrite + autoSignDarwinBinariesHook re-sign actually produces a runnable
+# binary on a real macOS host). Builds `.#packages.aarch64-darwin.charon-aeneas` (its
+# installCheckPhase already runs `charon version`/`aeneas -version`/`otool -L`) and replays the
+# extraction inside `.#extraction`, diffing against the committed files.
+
+name: CI (macOS)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Every run is a workflow_dispatch run and gets its own group keyed on github.run_id, so requested
+# runs never cancel each other. The github.ref fallback is inert while dispatch is the only trigger.
+concurrency:
+  group: ci-macos-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # See the header comment's "launcher-compat" paragraph. No Nix, no caches, no `if:`: it runs on
+  # every event that reaches this workflow.
+  launcher-compat:
+    name: launcher-compat (${{ matrix.os }}, /bin/bash 3.2)
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-26
+            gate: full
+          - os: macos-15-intel
+            gate: light-only
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # /bin/bash explicitly, never a bare `bash`: a Homebrew bash 5 earlier on PATH would make
+      # this pass for the wrong reason. The fixture fails unless the interpreter reports 3.2.x,
+      # --support-level prints the gate level this architecture is designated, and stderr is empty.
+      - name: framed_channel/tests/launcher-compat/run.sh under /bin/bash
+        env:
+          LAUNCHER_COMPAT_BASH: /bin/bash
+          LAUNCHER_COMPAT_REQUIRE_DYNAMIC: "1"
+          LAUNCHER_COMPAT_EXPECT_BASH: "3.2."
+          LAUNCHER_COMPAT_EXPECT_GATE: ${{ matrix.gate }}
+        run: /bin/bash framed_channel/tests/launcher-compat/run.sh
+
+  build:
+    name: build (macos-26)
+    uses: ./.github/workflows/build-and-test.yml
+    with:
+      os: macos-26
+
+  # See the header comment's "aeneas-prebuilt" paragraph. Deliberately not `needs: [build]`: this
+  # job is independent evidence and should run (and be inspectable) whatever `build` does.
+  aeneas-prebuilt:
+    name: aeneas-prebuilt darwin wiring (macos-26)
+    runs-on: macos-26
+    # nix/aeneas-prebuilt.nix's own installCheckPhase already covers the version/ldd-equivalent
+    # checks; this job additionally realizes it fresh (no substituter can serve a darwin
+    # aeneas-prebuilt build, so this is always a real build of the fetch+patch+wrap pipeline) and
+    # replays the extraction. No Mathlib/lake-bridge fetch here (replay only needs the prebuilt
+    # devShell, not the aeneas/ Lake package), so this is far lighter than build/recheck-kernel.
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        id: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # No extra substituter or trust configuration needed: cache.nixos.org is the only
+      # substituter, and the aeneas-prebuilt fetch/patch pipeline this job exercises needs no
+      # third-party cache by design.
+      - name: Install Nix (DeterminateSystems/nix-installer-action)
+        id: install_nix
+        uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+
+      - name: Build .#packages.aarch64-darwin.charon-aeneas (-L; installCheckPhase runs charon/aeneas version checks and an otool -L dependency scan)
+        id: build_charon_aeneas
+        run: |
+          set -euo pipefail
+          nix build .#packages.aarch64-darwin.charon-aeneas -L
+
+      - name: Replay the extraction against the committed files
+        id: replay_extraction
+        run: |
+          set -euo pipefail
+          nix develop .#extraction --command bash framed_channel/scripts/refresh-extraction.sh --dest "$RUNNER_TEMP/ex"
+          echo "::group::diff -r against the committed extraction"
+          if ! diff -r "$RUNNER_TEMP/ex" framed_channel/aeneas/FramedChannelAeneas/Extracted/ \
+              -x FunsExternal.lean; then
+            echo "::error::the aarch64-darwin prebuilt replay differs from the committed extraction; a darwin-only Charon/rustc difference would mean the pin cannot serve a single extraction for every system"
+            exit 1
+          fi
+          echo "replay matches the committed extraction (aarch64-darwin, prebuilt)"
+          echo "::endgroup::"

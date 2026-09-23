@@ -1,0 +1,167 @@
+# CI for this repository. README.md's "CI" badge is GitHub's own status badge for this workflow
+# file (actions/workflows/ci.yml/badge.svg), so it reports the latest run of the whole workflow
+# on main; renaming this file means updating that badge URL. See docs/ci.md for cache, cost
+# and timeout rationale; docs/development.md for local reproduction of every step below.
+#
+# Jobs:
+#   build   -- matrix of ubuntu-24.04 (x86_64-linux) and ubuntu-24.04-arm (aarch64-linux), each
+#              calling build-and-test.yml, the reusable job body ci-macos.yml also calls for
+#              macos-26 (kept out of this every-push matrix; see ci-macos.yml's header). Runner
+#              images are pinned, never `*-latest`; docs/ci.md's "Runner images" has the bump
+#              procedure.
+#   hygiene -- ubuntu-24.04 only, inside the flake's `lint` dev shell: shellcheck over every
+#              tracked *.sh file, an `install.sh --help` smoke run, the launcher-compat fixture
+#              (no bash-4-only construct in a script that runs under the host bash; the macOS
+#              /bin/bash 3.2 run of the same fixture is ci-macos.yml's), check.sh's
+#              license-header scan over the whole tree (check-spdx.sh; the path-filtered gate
+#              workflows rely on this every-push run for files outside their lists),
+#              check-ci-docs-coherence.sh (docs/ci.md <-> .github/ structural coherence: every
+#              workflow inventoried, every timeout-minutes and paths: entry matching, every SHA
+#              pin commented and single-valued, every cross-reference resolving), actionlint over
+#              .github/workflows/*.yml, and `nix flake check --all-systems` (evaluates every dev
+#              shell for every system flake.nix defines, including both darwin systems, on every
+#              push). Runs independently of and in parallel with build.
+#
+# Windows has no native Nix; its path is WSL2, one of the Linux legs above as far as the flake is
+# concerned. Neither ci.yml nor build-and-test.yml runs on a Windows runner at all: that path is
+# instead exercised by the separate, on-request ci-windows.yml (see docs/ci.md's "Windows runs on
+# request only"), which its third dispatch ran end to end and green: the full build-and-test.yml
+# command set (lake build, cargo test, check.sh --core-only, all fixture suites)
+# passes inside a WSL2 Ubuntu-24.04 distribution on windows-2025, and the recheck prerequisites
+# (systemd user session, Landlock ABI v7) probe as usable there without a linger step -- see
+# docs/ci.md's Known coverage gaps for the remaining, real caveats (env files and
+# $GITHUB_WORKSPACE unreachable from the WSL2 shell, a v9fs checkout mount, and CRLF
+# normalization via the root .gitattributes being load-bearing for this leg).
+#
+# No CI leg here (ci.yml or build-and-test.yml) builds anything on x86_64-darwin: only
+# the hygiene job's `nix flake check --all-systems` evaluates it, since `.#build` has no charon or
+# aeneas on that system (flake.nix's `systems`). Several jobs elsewhere do still run on
+# macos-15-intel without a Nix build: ci-macos.yml's `launcher-compat` (no Nix at all),
+# intel-installer-smoke.yml (installs Nix and asks it what system it is on), and the
+# fresh-clone-canary.yml leg requested with `-f macos=true` (`install.sh` plus
+# `check.sh --committed-extraction`) -- see docs/ci.md's "macOS runs on request only".
+#
+# Deliberate overlap: check.sh's own stage list already runs Lean build work plus
+# `cargo fmt --check`, `cargo clippy` and `cargo test`, so the separate `lake build` / `cargo test`
+# steps below duplicate some of that work; this buys per-tool failure attribution in the Actions
+# UI at the cost of a second, redundant run of the same build.
+#
+# No path filter on this workflow, deliberately: `check.sh --core-only` (run by every build leg
+# via build-and-test.yml) scans every tracked file, including README.md, docs/** and LICENSE, for
+# SPDX headers, so a documentation-only push still needs this coverage. The path-filtered gate
+# workflows (verify.yml, ci-macos-gate.yml, ci-macos-recheck.yml) are the deliberate mirror image
+# of this; do not harmonize them.
+
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A workflow_dispatch run gets its own unique group keyed on github.run_id, so it never
+# cancels, and is never cancelled by, a push/pull_request run on the same ref; push/pull_request
+# runs on the same ref still cancel-in-progress each other as before.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: build (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm]
+    uses: ./.github/workflows/build-and-test.yml
+    with:
+      os: ${{ matrix.os }}
+
+  hygiene:
+    name: Hygiene (shellcheck, install.sh --help, ci-docs-coherence, actionlint, nix flake check --all-systems)
+    runs-on: ubuntu-24.04
+    # See docs/ci.md's Timeouts table for the sizing rationale.
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        id: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # No disk-freeing step and no Nix store cache: the 0.7 GiB lint shell needs no more than
+      # the runner's default free disk.
+
+      - name: Install Nix (DeterminateSystems/nix-installer-action)
+        id: install_nix
+        uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+
+      # shellcheck and actionlint both come from the lint dev shell (flake.nix's devShells.lint).
+      - name: shellcheck (every tracked *.sh file, derived at runtime)
+        id: shellcheck
+        run: |
+          set -euo pipefail
+          nix develop .#lint --command bash -c "shellcheck -x -S warning \$(git ls-files '*.sh')"
+
+      # No dev shell needed: install.sh's --help path runs before any prerequisite check.
+      - name: install.sh --help (smoke run)
+        id: install_help
+        run: |
+          set -euo pipefail
+          bash install.sh --help > /dev/null
+
+      # The static pass is the first line of defense against a bash-4-only construct in a script
+      # that runs under the host bash (full-gate.sh, install.sh, what they source, and the
+      # lean-toolchain action's verify.sh); the dynamic pass runs here too, under this runner's
+      # bash 5. This step fires on every push. The faithful run, under macOS's /bin/bash 3.2, is
+      # ci-macos.yml's launcher-compat job -- ci-macos.yml is on request only now (see
+      # docs/ci.md's "macOS runs on request only"), so that job runs only when requested.
+      - name: framed_channel/tests/launcher-compat/run.sh (static pass, plus dynamic under bash 5)
+        id: launcher_compat
+        env:
+          LAUNCHER_COMPAT_REQUIRE_DYNAMIC: "1"
+        run: |
+          set -euo pipefail
+          LAUNCHER_COMPAT_BASH="$(command -v bash)" bash framed_channel/tests/launcher-compat/run.sh
+
+      # check.sh's license-header stage, on the real tree, on every push: verify.yml and
+      # ci-macos-gate.yml are path-filtered to the gate's inputs, and this scan is the one stage
+      # of that gate whose input is every tracked source file. Needs only bash and git.
+      - name: framed_channel/scripts/check-spdx.sh (license headers, whole tree)
+        id: spdx_tree
+        run: |
+          set -euo pipefail
+          bash framed_channel/scripts/check-spdx.sh
+
+      # Whole-tree scan, no path filter, no dev shell needed -- same placement rationale as
+      # spdx_tree above: this is the one stage whose input is every tracked workflow/action file
+      # and docs/ci.md itself, so it belongs beside the other every-push, whole-tree checks
+      # rather than inside a path-filtered gate. See the script's own header for why it is
+      # deliberately not in check.sh/full-gate.sh (certificate scope; verify.yml's paths:
+      # excludes docs/**). Not yet measured on this repository -- record the wall time here
+      # after this step's first real run (grep/awk only over an already-checked-out tree;
+      # expected well under a minute).
+      - name: framed_channel/scripts/check-ci-docs-coherence.sh (docs/ci.md <-> .github/ coherence)
+        id: ci_docs_coherence
+        run: |
+          set -euo pipefail
+          bash framed_channel/scripts/check-ci-docs-coherence.sh
+
+      - name: actionlint (.github/workflows)
+        id: actionlint_step
+        run: |
+          set -euo pipefail
+          nix develop .#lint --command bash -c 'actionlint .github/workflows/*.yml'
+
+      # Runs directly (not inside a dev shell) since it only evaluates; --all-systems covers
+      # every system flake.nix defines, including one the build matrix does not reach.
+      - name: nix flake check --all-systems
+        id: flake_check
+        run: |
+          set -euo pipefail
+          nix flake check --all-systems

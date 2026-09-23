@@ -1,0 +1,244 @@
+# Reusable build-and-test job, called by ci.yml (ubuntu-24.04, ubuntu-24.04-arm) and
+# ci-macos.yml (macos-26). Factored out rather than duplicated: this job is about 200 lines
+# (23 steps, including the shared lean-toolchain action, two restore/save pairs, a step summary), and a
+# "keep in sync" comment would make drift a matter of discipline -- drift here is silent, since a
+# step fixed on Linux but not on macOS would surface only at the next requested ci-macos.yml run:
+# that workflow is on request only (see docs/ci.md's "macOS runs on request only"), so "the next
+# run" can mean never, until someone explicitly dispatches it.
+# This file carries the whole job (`workflow_call`), is validated by actionlint (inputs and both
+# callers' `with:`), and keeps every cache key byte-identical across all three systems by
+# construction, since the steps are the same file, not three copies.
+#
+# See docs/ci.md for the caching rationale, cost and coverage notes shared across every caller;
+# docs/development.md for local reproduction of every step below under `nix develop .#build`.
+
+name: Build and test
+
+on:
+  workflow_call:
+    inputs:
+      os:
+        type: string
+        required: true
+        description: "GitHub-hosted runner label, for example ubuntu-24.04"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and test (${{ inputs.os }})
+    runs-on: ${{ inputs.os }}
+    # Sized for a cold leg: macos-26 measured 8 min with every cache cold; 30 min leaves
+    # headroom for a slow substituter fetch on any of the three systems this job runs on.
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        id: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # ubuntu-24.04 only, and only the two cheap sections (dotnet, haskell): the action cannot
+      # run on macOS, and ubuntu-24.04-arm has ample free disk already.
+      - name: Free runner disk space (jlumbroso/free-disk-space)
+        id: free_disk
+        if: inputs.os == 'ubuntu-24.04'
+        uses: jlumbroso/free-disk-space@ceedf095f4ec1a097402bc6bd80831f2e1a6fde6 # v2.0.0
+        with:
+          android: false
+          dotnet: true
+          haskell: true
+          large-packages: false
+          docker-images: false
+
+      # No extra substituter or trust configuration needed here: cache.nixos.org is the only
+      # substituter this job (or any job) uses, and charon/aeneas come from the sha256-pinned
+      # upstream release tarball, not a Nix substituter (see flake.nix's header comment).
+      - name: Install Nix (DeterminateSystems/nix-installer-action)
+        id: install_nix
+        uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+
+      # Restores ~/.elan on an exact key (nixpkgs rev + the lean-toolchain files, no prefix
+      # fallback), proves lake and lean run, reinstalls once if they do not, and saves on a
+      # verified miss -- all inside the action, shared with verify.yml and ci-macos.yml, so the
+      # ubuntu-24.04 leg shares verify.yml's entry. This is also the first `nix develop .#build`
+      # of the job, so on a warm elan cache its duration is the shell realization from the
+      # substituters (measured 115-145 s on macos-26, 33 s on ubuntu-24.04-arm).
+      - name: Lean toolchain (restore, verify, self-heal and save ~/.elan)
+        id: lean_toolchain
+        uses: ./.github/actions/lean-toolchain
+        with:
+          shell: build
+
+      # Only the core Lean package's .lake is cached here: this job never builds the bridge
+      # package, so caching its .lake directory too would only ever be a permanent miss.
+      # Exact key only, and the key carries the nixpkgs rev: framed_channel/rust/target holds
+      # cargo's test binaries, linked by the dev shell's compiler wrapper whose ELF interpreter is
+      # a /nix/store path of that nixpkgs revision -- the same coupling that makes a ~/.elan from
+      # another revision unusable. framed_channel/lean/.lake carries no linked executable of its
+      # own (its lakefile.toml declares [[lean_lib]] targets only), so it shares this key's
+      # nixpkgs-rev segment and is over-invalidated on every relock -- a deliberate, safe-direction
+      # cost, not an oversight. `v2` is the epoch segment (see docs/ci.md).
+      - name: Restore lake-core (framed_channel/lean/.lake and the cargo target directory)
+        id: lake_core_restore
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            framed_channel/lean/.lake
+            framed_channel/rust/target
+          key: lake-core-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.lean_toolchain.outputs.nixpkgs-rev }}-${{ hashFiles('framed_channel/lean/lean-toolchain', 'framed_channel/lean/lake-manifest.json', 'framed_channel/rust/Cargo.lock') }}
+
+      - name: lake build (cd framed_channel/lean && lake build)
+        id: lake_build
+        run: |
+          set -euo pipefail
+          nix develop .#build --command bash -c 'cd framed_channel/lean && lake build'
+
+      - name: cargo test (cd framed_channel/rust && cargo test)
+        id: cargo_test
+        run: |
+          set -euo pipefail
+          nix develop .#build --command bash -c 'cd framed_channel/rust && cargo test'
+
+      - name: check.sh --core-only (core pre-check; not the verification gate, see verify.yml)
+        id: core_precheck
+        run: |
+          set -euo pipefail
+          echo "::group::nix develop .#build --command bash framed_channel/check.sh --core-only"
+          rc=0
+          nix develop .#build --command bash framed_channel/check.sh --core-only || rc=$?
+          if [ "$rc" -ne 3 ]; then
+            echo "::error::check.sh --core-only exited $rc; the pre-check ends INCOMPLETE (exit 3) by design, and an exit 0 here would mean check.sh claimed PASS without the bridge"
+            exit 1
+          fi
+          echo "::endgroup::"
+
+      - name: framed_channel/tests/approvals/run.sh
+        id: test_approvals
+        run: |
+          set -euo pipefail
+          nix develop .#build --command bash framed_channel/tests/approvals/run.sh
+
+      - name: framed_channel/tests/certificate-identity/run.sh
+        id: test_certificate_identity
+        run: |
+          set -euo pipefail
+          nix develop .#build --command bash framed_channel/tests/certificate-identity/run.sh
+
+      - name: framed_channel/tests/adopt-recheck/run.sh
+        id: test_adopt_recheck
+        run: |
+          set -euo pipefail
+          nix develop .#build --command bash framed_channel/tests/adopt-recheck/run.sh
+
+      - name: framed_channel/tests/ladder/run.sh
+        id: test_ladder
+        run: |
+          set -euo pipefail
+          nix develop .#build --command bash framed_channel/tests/ladder/run.sh
+
+      - name: framed_channel/tests/layer/run.sh
+        id: test_layer
+        run: |
+          set -euo pipefail
+          nix develop .#build --command bash framed_channel/tests/layer/run.sh
+
+      - name: framed_channel/tests/spdx/run.sh
+        id: test_spdx
+        run: |
+          set -euo pipefail
+          nix develop .#build --command bash framed_channel/tests/spdx/run.sh
+
+      - name: framed_channel/tests/ci-docs-coherence/run.sh
+        id: test_ci_docs_coherence
+        run: |
+          set -euo pipefail
+          nix develop .#build --command bash framed_channel/tests/ci-docs-coherence/run.sh
+
+      - name: framed_channel/tests/aeneas-revs/run.sh
+        id: test_aeneas_revs
+        run: |
+          set -euo pipefail
+          nix develop .#build --command bash framed_channel/tests/aeneas-revs/run.sh
+
+      - name: framed_channel/tests/recheck-revs/run.sh
+        id: test_recheck_revs
+        run: |
+          set -euo pipefail
+          nix develop .#build --command bash framed_channel/tests/recheck-revs/run.sh
+
+      - name: framed_channel/tests/recheck-record/run.sh
+        id: test_recheck_record
+        run: |
+          set -euo pipefail
+          nix develop .#build --command bash framed_channel/tests/recheck-record/run.sh
+
+      # Stubs nix entirely (see the fixture's own header), so this needs only jq and bash from
+      # the shell -- never a real Nix build or fetch.
+      - name: framed_channel/tests/full-gate/run.sh
+        id: test_full_gate
+        run: |
+          set -euo pipefail
+          nix develop .#build --command bash framed_channel/tests/full-gate/run.sh
+
+      # Drives nix/bump-aeneas-pin.sh entirely through its BUMP_PIN_TEST_* hooks (see the
+      # fixture's own header), so this needs only jq and bash -- never a real gh/nix/lake/tar/git
+      # call.
+      - name: framed_channel/tests/bump-pin/run.sh
+        id: test_bump_pin
+        run: |
+          set -euo pipefail
+          nix develop .#build --command bash framed_channel/tests/bump-pin/run.sh
+
+      # Drives ../../nix/lean-toolchain-pin.sh entirely through its LEAN_TOOLCHAIN_PIN_TEST_*
+      # hooks (see the fixture's own header), so this needs only jq, coreutils and bash -- never
+      # a real network fetch of a Lean release asset.
+      - name: framed_channel/tests/lean-toolchain-pin/run.sh
+        id: test_lean_toolchain_pin
+        run: |
+          set -euo pipefail
+          nix develop .#build --command bash framed_channel/tests/lean-toolchain-pin/run.sh
+
+      # Throwaway git repositories only (git is in the dev shell): the strict and --portable-host
+      # verdicts of the comparison verify.yml's "Certificate freshness" steps run.
+      - name: framed_channel/tests/cert-freshness/run.sh
+        id: test_cert_freshness
+        run: |
+          set -euo pipefail
+          nix develop .#build --command bash framed_channel/tests/cert-freshness/run.sh
+
+      # Linux-only by nature (the shim is); on the macOS leg it reports a skip and exits 0.
+      - name: framed_channel/tests/landrun-shim/run.sh
+        id: test_landrun_shim
+        run: |
+          set -euo pipefail
+          nix develop .#build --command bash framed_channel/tests/landrun-shim/run.sh
+
+      # Save policy: an entry is saved only when the step that populates it succeeded, never from
+      # a failed populate and never from a cancelled run (a partial tree under an immutable key
+      # would be restored as if complete until the key changed). ~/.elan is saved inside the
+      # lean-toolchain action, right after it is verified. A save on an exact primary-key hit is
+      # a no-op and is skipped; the primary-key guard covers a job that failed before its restore.
+      - name: Save lake-core
+        id: lake_core_save
+        if: ${{ !cancelled() && steps.lake_build.outcome == 'success' && steps.cargo_test.outcome == 'success' && steps.lake_core_restore.outputs.cache-primary-key != '' && steps.lake_core_restore.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            framed_channel/lean/.lake
+            framed_channel/rust/target
+          key: ${{ steps.lake_core_restore.outputs.cache-primary-key }}
+
+      - name: Write step summary
+        if: always()
+        run: |
+          {
+            echo "### Build and test (${{ inputs.os }})"
+            echo "| Step | Detail |"
+            echo "|---|---|"
+            echo "| Lean toolchain (~/.elan) | ${{ steps.lean_toolchain.outcome }} (cache-hit: ${{ steps.lean_toolchain.outputs.cache-hit }}, verified: ${{ steps.lean_toolchain.outputs.verified }}, healed: ${{ steps.lean_toolchain.outputs.healed }}, saved: ${{ steps.lean_toolchain.outputs.saved }}) |"
+            echo "| nixpkgs locked rev (in the elan and lake-core keys) | ${{ steps.lean_toolchain.outputs.nixpkgs-rev }} |"
+            echo "| elan key | ${{ steps.lean_toolchain.outputs.cache-primary-key }} |"
+            echo "| Restore lake-core | ${{ steps.lake_core_restore.outcome }} (cache-hit: ${{ steps.lake_core_restore.outputs.cache-hit }}, restored key: ${{ steps.lake_core_restore.outputs.cache-matched-key }}) |"
+          } >> "$GITHUB_STEP_SUMMARY"

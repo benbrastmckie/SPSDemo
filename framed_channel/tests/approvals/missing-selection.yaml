@@ -1,0 +1,17 @@
+# fixture: no selection record
+specification:
+  - challenge: FramedChannelChallenge.RingBuffer
+    spec_digest: 111
+    approver: "Test Person <test@example.org>"
+    by: person
+    date: 2026-01-31
+  - challenge: FramedChannelChallenge.Varint
+    spec_digest: 222
+    approver: "Test Person <test@example.org>"
+    by: person
+    date: 2026-01-31
+  - challenge: FramedChannelAeneasChallenge.RingBuffer
+    spec_digest: 333
+    approver: "Test Person <test@example.org>"
+    by: person
+    date: 2026-01-31

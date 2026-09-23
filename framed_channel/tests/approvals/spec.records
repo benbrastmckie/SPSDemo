@@ -1,0 +1,6 @@
+core digest FramedChannelChallenge.RingBuffer 111
+core digest FramedChannelChallenge.Varint 222
+bridge digest FramedChannelAeneasChallenge.RingBuffer 333
+bridge reached framed_channel.ring_buffer.RingBuffer.push
+bridge reached framed_channel.ring_buffer.RingBuffer.pop
+bridge reached framed_channel.ring_buffer.RingBuffer.Insts.Framed_channelQueueBoundedQueue

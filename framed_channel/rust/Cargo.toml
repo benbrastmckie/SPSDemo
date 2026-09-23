@@ -1,0 +1,9 @@
+[package]
+name = "framed_channel"
+version = "0.2.0"
+edition = "2021"
+rust-version = "1.95.0"
+description = "A framed message channel over a bounded queue, LEB128 and CRC-8, in the Aeneas subset."
+license = "Apache-2.0"
+readme = "README.md"
+publish = false

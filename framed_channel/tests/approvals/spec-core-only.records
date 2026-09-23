@@ -1,0 +1,2 @@
+core digest FramedChannelChallenge.RingBuffer 111
+core digest FramedChannelChallenge.Varint 222

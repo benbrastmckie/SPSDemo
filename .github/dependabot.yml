@@ -1,0 +1,46 @@
+# dependabot.yml -- automated bump proposals for GitHub Action SHAs only.
+#
+# Why Dependabot and not Renovate: Renovate was already rejected for the harder Aeneas-pin case
+# (its hosted app is an account-scoped install; its self-hosted variant
+# needs a custom datasource for a pinned-by-SHA release-tarball input). The same reasoning applies
+# here, more simply: Dependabot's `github-actions` ecosystem is built into GitHub, needs no
+# account, app install, or secret beyond the repository's own default `GITHUB_TOKEN`, and already
+# understands the `uses: owner/repo@<sha> # vX.Y.Z` comment-annotated pin convention every workflow
+# in .github/workflows/ already follows -- it opens a PR that moves the SHA and updates the
+# trailing version comment together.
+#
+# Scope: `github-actions` only. This file can never touch `nix/aeneas-pin.json`, `flake.lock`, or
+# any flake input -- those stay the exclusive responsibility of nix/bump-aeneas-pin.sh
+# (`update-aeneas-pin.yml`) and .github/workflows/update-flake-inputs.yml respectively. See
+# docs/development.md's "Pin bump procedure" for the full per-dependency-class table.
+#
+# `directories`: "/" is Dependabot's spelling of .github/workflows; the composite actions under
+# .github/actions/ are separate directories it does not scan unless named. They pin the same
+# actions/cache SHA the workflows do (restore in an action, save in a workflow, one cache
+# version), so they must move in the same PR.
+#
+# `groups` collapses every Action-SHA bump across all workflow and action files into a single
+# weekly PR instead of one PR per action per file (the files share several of the same actions,
+# e.g. actions/checkout, DeterminateSystems/nix-installer-action).
+#
+# The two labels below must exist in the repository (Dependabot does not create custom labels);
+# docs/ci.md's "Repository settings" lists them with the other one-time settings.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directories:
+      - "/"
+      - "/.github/actions/*"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "task: bump"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "github-actions"
