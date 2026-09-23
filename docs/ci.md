@@ -818,9 +818,22 @@ transfer or a fresh publication has to set them again:
   declares its own `permissions:` block.
 - **Labels `dependencies` and `github-actions`**: Dependabot applies both
   (`.github/dependabot.yml`) and does not create custom labels itself.
-- **Branch protection on `main`** (recommended, not required by any workflow): require the `CI`
-  checks. Do not require a path-filtered workflow's checks: GitHub leaves a required check
-  "pending" forever on a pull request whose paths do not admit the workflow.
+- **Branch protection on `main`** (not required by any workflow, but set on this repository):
+  require exactly the three checks `ci.yml` produces -- the hygiene job's and the two
+  `build-and-test.yml` legs' -- with `strict` off (no forced rebase each time `main` moves), admin
+  enforcement off (a direct-push path for a hotfix), force pushes and deletions denied, and
+  conversation resolution required. Do not require a path-filtered workflow's checks
+  (`verify.yml`, `setup-without-nix.yml`): GitHub leaves a required check "pending" forever on a
+  pull request whose paths do not admit the workflow, and the same holds unconditionally for a
+  `workflow_dispatch`-only workflow's checks, which no pull request ever starts.
+
+  **A required check is named after the JOB, not the workflow.** The registered names are
+  therefore coupled to `name:` fields in `.github/workflows/`: renaming one of those jobs without
+  updating the protection in the same change leaves a required check pending forever and blocks
+  every pull request, with nothing failing to point at the cause. Keep a job name that feeds a
+  required check inside GitHub's 100-character check-run limit as well -- a longer one is
+  registered truncated, ellipsis included, and its truncation point moves whenever the name is
+  edited.
 
 **Workflow security posture**, which a change to any workflow must preserve:
 
