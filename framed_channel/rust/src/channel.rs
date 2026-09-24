@@ -22,8 +22,10 @@ use crate::queue::BoundedQueue;
 use crate::ring_buffer::{Full, RingBuffer};
 use crate::varint::{decode_u32, encode_u32};
 
-/// The frame boundary byte (Lean `Channel.marker`). There is no byte stuffing: a `0x7E` inside
-/// a frame (length bytes, payload, or check byte) is data.
+/// The frame boundary byte (Lean `Channel.marker`). `Channel` itself does not stuff: a `0x7E`
+/// inside one of its frames (length bytes, payload, or check byte) is data, so the composite's
+/// own framing offers no transparency. Byte stuffing is a separate unit -- see `crate::stuff`,
+/// which owns its own `MARKER`/`ESC`/`XOR_MASK` and is not wired into `Channel`.
 pub const MARKER: u8 = 0x7E;
 
 /// One frame's payload, matching the Lean `Channel.Frame := List Byte`: a frame *is* its bytes.

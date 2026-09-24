@@ -29,12 +29,12 @@ def alloc.vec.Vec.Insts.CoreDefaultDefault (T : Type) : core.default.Default
 }
 
 /-- [framed_channel::channel::MARKER]
-    Source: 'src/channel.rs', lines 27:0-27:28
+    Source: 'src/channel.rs', lines 29:0-29:28
     Visibility: public -/
 @[global_simps, irreducible] def channel.MARKER : Std.U8 := 126#u8
 
 /-- [framed_channel::channel::{impl core::fmt::Debug for framed_channel::channel::DeliverFail}::fmt]:
-    Source: 'src/channel.rs', lines 35:9-35:14
+    Source: 'src/channel.rs', lines 37:9-37:14
     Visibility: public -/
 def channel.DeliverFail.Insts.CoreFmtDebug.fmt
   (self : channel.DeliverFail) (f : core.fmt.Formatter) :
@@ -43,7 +43,7 @@ def channel.DeliverFail.Insts.CoreFmtDebug.fmt
   core.fmt.Formatter.write_str f (toStr "DeliverFail")
 
 /-- Trait implementation: [framed_channel::channel::{impl core::fmt::Debug for framed_channel::channel::DeliverFail}]
-    Source: 'src/channel.rs', lines 35:9-35:14 -/
+    Source: 'src/channel.rs', lines 37:9-37:14 -/
 @[reducible]
 def channel.DeliverFail.Insts.CoreFmtDebug : core.fmt.Debug channel.DeliverFail
   := {
@@ -51,14 +51,14 @@ def channel.DeliverFail.Insts.CoreFmtDebug : core.fmt.Debug channel.DeliverFail
 }
 
 /-- [framed_channel::channel::{impl core::clone::Clone for framed_channel::channel::DeliverFail}::clone]:
-    Source: 'src/channel.rs', lines 35:16-35:21
+    Source: 'src/channel.rs', lines 37:16-37:21
     Visibility: public -/
 def channel.DeliverFail.Insts.CoreCloneClone.clone
   (self : channel.DeliverFail) : Result channel.DeliverFail := do
   ok self
 
 /-- Trait implementation: [framed_channel::channel::{impl core::clone::Clone for framed_channel::channel::DeliverFail}]
-    Source: 'src/channel.rs', lines 35:16-35:21 -/
+    Source: 'src/channel.rs', lines 37:16-37:21 -/
 @[reducible]
 def channel.DeliverFail.Insts.CoreCloneClone : core.clone.Clone
   channel.DeliverFail := {
@@ -66,7 +66,7 @@ def channel.DeliverFail.Insts.CoreCloneClone : core.clone.Clone
 }
 
 /-- Trait implementation: [framed_channel::channel::{impl core::marker::Copy for framed_channel::channel::DeliverFail}]
-    Source: 'src/channel.rs', lines 35:23-35:27 -/
+    Source: 'src/channel.rs', lines 37:23-37:27 -/
 @[reducible]
 def channel.DeliverFail.Insts.CoreMarkerCopy : core.marker.Copy
   channel.DeliverFail := {
@@ -74,14 +74,14 @@ def channel.DeliverFail.Insts.CoreMarkerCopy : core.marker.Copy
 }
 
 /-- Trait implementation: [framed_channel::channel::{impl core::marker::StructuralPartialEq for framed_channel::channel::DeliverFail}]
-    Source: 'src/channel.rs', lines 35:29-35:38 -/
+    Source: 'src/channel.rs', lines 37:29-37:38 -/
 @[reducible]
 def channel.DeliverFail.Insts.CoreMarkerStructuralPartialEq :
   core.marker.StructuralPartialEq channel.DeliverFail := {
 }
 
 /-- [framed_channel::channel::{impl core::cmp::PartialEq<framed_channel::channel::DeliverFail> for framed_channel::channel::DeliverFail}::eq]:
-    Source: 'src/channel.rs', lines 35:29-35:38
+    Source: 'src/channel.rs', lines 37:29-37:38
     Visibility: public -/
 def channel.DeliverFail.Insts.CoreCmpPartialEqDeliverFail.eq
   (self : channel.DeliverFail) (other : channel.DeliverFail) :
@@ -90,7 +90,7 @@ def channel.DeliverFail.Insts.CoreCmpPartialEqDeliverFail.eq
   ok true
 
 /-- Trait implementation: [framed_channel::channel::{impl core::cmp::PartialEq<framed_channel::channel::DeliverFail> for framed_channel::channel::DeliverFail}]
-    Source: 'src/channel.rs', lines 35:29-35:38 -/
+    Source: 'src/channel.rs', lines 37:29-37:38 -/
 @[reducible]
 def channel.DeliverFail.Insts.CoreCmpPartialEqDeliverFail : core.cmp.PartialEq
   channel.DeliverFail channel.DeliverFail := {
@@ -98,14 +98,14 @@ def channel.DeliverFail.Insts.CoreCmpPartialEqDeliverFail : core.cmp.PartialEq
 }
 
 /-- [framed_channel::channel::{impl core::cmp::Eq for framed_channel::channel::DeliverFail}::assert_fields_are_eq]:
-    Source: 'src/channel.rs', lines 35:40-35:42
+    Source: 'src/channel.rs', lines 37:40-37:42
     Visibility: public -/
 def channel.DeliverFail.Insts.CoreCmpEq.assert_fields_are_eq
   (self : channel.DeliverFail) : Result Unit := do
   ok ()
 
 /-- Trait implementation: [framed_channel::channel::{impl core::cmp::Eq for framed_channel::channel::DeliverFail}]
-    Source: 'src/channel.rs', lines 35:40-35:42 -/
+    Source: 'src/channel.rs', lines 37:40-37:42 -/
 @[reducible]
 def channel.DeliverFail.Insts.CoreCmpEq : core.cmp.Eq channel.DeliverFail := {
   partialEqInst := channel.DeliverFail.Insts.CoreCmpPartialEqDeliverFail
@@ -114,7 +114,7 @@ def channel.DeliverFail.Insts.CoreCmpEq : core.cmp.Eq channel.DeliverFail := {
 }
 
 /-- [framed_channel::channel::{impl core::fmt::Debug for framed_channel::channel::SendFail}::fmt]:
-    Source: 'src/channel.rs', lines 42:9-42:14
+    Source: 'src/channel.rs', lines 44:9-44:14
     Visibility: public -/
 def channel.SendFail.Insts.CoreFmtDebug.fmt
   (self : channel.SendFail) (f : core.fmt.Formatter) :
@@ -123,21 +123,21 @@ def channel.SendFail.Insts.CoreFmtDebug.fmt
   core.fmt.Formatter.write_str f (toStr "SendFail")
 
 /-- Trait implementation: [framed_channel::channel::{impl core::fmt::Debug for framed_channel::channel::SendFail}]
-    Source: 'src/channel.rs', lines 42:9-42:14 -/
+    Source: 'src/channel.rs', lines 44:9-44:14 -/
 @[reducible]
 def channel.SendFail.Insts.CoreFmtDebug : core.fmt.Debug channel.SendFail := {
   fmt := channel.SendFail.Insts.CoreFmtDebug.fmt
 }
 
 /-- [framed_channel::channel::{impl core::clone::Clone for framed_channel::channel::SendFail}::clone]:
-    Source: 'src/channel.rs', lines 42:16-42:21
+    Source: 'src/channel.rs', lines 44:16-44:21
     Visibility: public -/
 def channel.SendFail.Insts.CoreCloneClone.clone
   (self : channel.SendFail) : Result channel.SendFail := do
   ok self
 
 /-- Trait implementation: [framed_channel::channel::{impl core::clone::Clone for framed_channel::channel::SendFail}]
-    Source: 'src/channel.rs', lines 42:16-42:21 -/
+    Source: 'src/channel.rs', lines 44:16-44:21 -/
 @[reducible]
 def channel.SendFail.Insts.CoreCloneClone : core.clone.Clone channel.SendFail
   := {
@@ -145,7 +145,7 @@ def channel.SendFail.Insts.CoreCloneClone : core.clone.Clone channel.SendFail
 }
 
 /-- Trait implementation: [framed_channel::channel::{impl core::marker::Copy for framed_channel::channel::SendFail}]
-    Source: 'src/channel.rs', lines 42:23-42:27 -/
+    Source: 'src/channel.rs', lines 44:23-44:27 -/
 @[reducible]
 def channel.SendFail.Insts.CoreMarkerCopy : core.marker.Copy channel.SendFail
   := {
@@ -153,21 +153,21 @@ def channel.SendFail.Insts.CoreMarkerCopy : core.marker.Copy channel.SendFail
 }
 
 /-- Trait implementation: [framed_channel::channel::{impl core::marker::StructuralPartialEq for framed_channel::channel::SendFail}]
-    Source: 'src/channel.rs', lines 42:29-42:38 -/
+    Source: 'src/channel.rs', lines 44:29-44:38 -/
 @[reducible]
 def channel.SendFail.Insts.CoreMarkerStructuralPartialEq :
   core.marker.StructuralPartialEq channel.SendFail := {
 }
 
 /-- [framed_channel::channel::{impl core::cmp::PartialEq<framed_channel::channel::SendFail> for framed_channel::channel::SendFail}::eq]:
-    Source: 'src/channel.rs', lines 42:29-42:38
+    Source: 'src/channel.rs', lines 44:29-44:38
     Visibility: public -/
 def channel.SendFail.Insts.CoreCmpPartialEqSendFail.eq
   (self : channel.SendFail) (other : channel.SendFail) : Result Bool := do
   ok true
 
 /-- Trait implementation: [framed_channel::channel::{impl core::cmp::PartialEq<framed_channel::channel::SendFail> for framed_channel::channel::SendFail}]
-    Source: 'src/channel.rs', lines 42:29-42:38 -/
+    Source: 'src/channel.rs', lines 44:29-44:38 -/
 @[reducible]
 def channel.SendFail.Insts.CoreCmpPartialEqSendFail : core.cmp.PartialEq
   channel.SendFail channel.SendFail := {
@@ -175,14 +175,14 @@ def channel.SendFail.Insts.CoreCmpPartialEqSendFail : core.cmp.PartialEq
 }
 
 /-- [framed_channel::channel::{impl core::cmp::Eq for framed_channel::channel::SendFail}::assert_fields_are_eq]:
-    Source: 'src/channel.rs', lines 42:40-42:42
+    Source: 'src/channel.rs', lines 44:40-44:42
     Visibility: public -/
 def channel.SendFail.Insts.CoreCmpEq.assert_fields_are_eq
   (self : channel.SendFail) : Result Unit := do
   ok ()
 
 /-- Trait implementation: [framed_channel::channel::{impl core::cmp::Eq for framed_channel::channel::SendFail}]
-    Source: 'src/channel.rs', lines 42:40-42:42 -/
+    Source: 'src/channel.rs', lines 44:40-44:42 -/
 @[reducible]
 def channel.SendFail.Insts.CoreCmpEq : core.cmp.Eq channel.SendFail := {
   partialEqInst := channel.SendFail.Insts.CoreCmpPartialEqSendFail
@@ -312,7 +312,7 @@ def crc8.crc8 (bytes : Slice Std.U8) : Result Std.U8 := do
   crc8.crc8_loop0 iter 0#u8
 
 /-- [framed_channel::channel::encode_frame]:
-    Source: 'src/channel.rs', lines 51:0-56:1
+    Source: 'src/channel.rs', lines 53:0-58:1
     Visibility: public -/
 def channel.encode_frame
   (payload : Slice Std.U8) (len : Std.U32) (out : alloc.vec.Vec Std.U8) :
@@ -398,7 +398,7 @@ def varint.decode_u32
     0#u32
 
 /-- [framed_channel::channel::parse_frame]:
-    Source: 'src/channel.rs', lines 63:0-81:1
+    Source: 'src/channel.rs', lines 65:0-83:1
     Visibility: public -/
 def channel.parse_frame
   (wire : Slice Std.U8) :
@@ -460,7 +460,7 @@ def channel.parse_frame
       ((alloc.vec.Vec Std.U8) × Std.Usize) residual
 
 /-- [framed_channel::channel::drop_front]:
-    Source: 'src/channel.rs', lines 85:0-90:1 -/
+    Source: 'src/channel.rs', lines 87:0-92:1 -/
 def channel.drop_front
   (bytes : Slice Std.U8) (n : Std.Usize) : Result (alloc.vec.Vec Std.U8) := do
   let o ←
@@ -471,7 +471,7 @@ def channel.drop_front
   | some rest => alloc.slice.Slice.to_vec core.clone.CloneU8 rest
 
 /-- [framed_channel::channel::{impl core::fmt::Debug for framed_channel::channel::Channel<Q>}::fmt]:
-    Source: 'src/channel.rs', lines 94:9-94:14
+    Source: 'src/channel.rs', lines 96:9-96:14
     Visibility: public -/
 def channel.Channel.Insts.CoreFmtDebug.fmt
   {Q : Type} (corefmtDebugInst : core.fmt.Debug Q) (self : channel.Channel Q)
@@ -486,7 +486,7 @@ def channel.Channel.Insts.CoreFmtDebug.fmt
     "out") dyn (toStr "wire") dyn1 (toStr "in_flight") dyn2
 
 /-- Trait implementation: [framed_channel::channel::{impl core::fmt::Debug for framed_channel::channel::Channel<Q>}]
-    Source: 'src/channel.rs', lines 94:9-94:14 -/
+    Source: 'src/channel.rs', lines 96:9-96:14 -/
 @[reducible]
 def channel.Channel.Insts.CoreFmtDebug {Q : Type} (corefmtDebugInst :
   core.fmt.Debug Q) : core.fmt.Debug (channel.Channel Q) := {
@@ -494,7 +494,7 @@ def channel.Channel.Insts.CoreFmtDebug {Q : Type} (corefmtDebugInst :
 }
 
 /-- [framed_channel::channel::{impl core::clone::Clone for framed_channel::channel::Channel<Q>}::clone]:
-    Source: 'src/channel.rs', lines 94:16-94:21
+    Source: 'src/channel.rs', lines 96:16-96:21
     Visibility: public -/
 def channel.Channel.Insts.CoreCloneClone.clone
   {Q : Type} (corecloneCloneInst : core.clone.Clone Q)
@@ -507,7 +507,7 @@ def channel.Channel.Insts.CoreCloneClone.clone
   ok { out := t, wire := v, in_flight := i }
 
 /-- Trait implementation: [framed_channel::channel::{impl core::clone::Clone for framed_channel::channel::Channel<Q>}]
-    Source: 'src/channel.rs', lines 94:16-94:21 -/
+    Source: 'src/channel.rs', lines 96:16-96:21 -/
 @[reducible]
 def channel.Channel.Insts.CoreCloneClone {Q : Type} (corecloneCloneInst :
   core.clone.Clone Q) : core.clone.Clone (channel.Channel Q) := {
@@ -819,7 +819,7 @@ def ring_buffer.RingBuffer.Insts.Framed_channelQueueBoundedQueue {T : Type}
 }
 
 /-- [framed_channel::channel::{framed_channel::channel::Channel<Q>}::with_queue]:
-    Source: 'src/channel.rs', lines 114:4-116:5
+    Source: 'src/channel.rs', lines 116:4-118:5
     Visibility: public -/
 def channel.Channel.with_queue
   {Q : Type} (queueBoundedQueueQVecU8Inst : queue.BoundedQueue Q (alloc.vec.Vec
@@ -830,7 +830,7 @@ def channel.Channel.with_queue
   ok { out := t, wire := (alloc.vec.Vec.new Std.U8), in_flight := 0#usize }
 
 /-- [framed_channel::channel::{framed_channel::channel::Channel<framed_channel::ring_buffer::RingBuffer<alloc::vec::Vec<u8>>>}::new]:
-    Source: 'src/channel.rs', lines 106:4-108:5
+    Source: 'src/channel.rs', lines 108:4-110:5
     Visibility: public -/
 def channel.ChannelRingBufferVecU8.new
   (capacity : Std.Usize) :
@@ -842,7 +842,7 @@ def channel.ChannelRingBufferVecU8.new
     (core.clone.CloneallocvecVec core.clone.CloneU8)) capacity
 
 /-- [framed_channel::channel::{framed_channel::channel::Channel<Q>}::send]:
-    Source: 'src/channel.rs', lines 128:4-138:5
+    Source: 'src/channel.rs', lines 130:4-140:5
     Visibility: public -/
 def channel.Channel.send
   {Q : Type} (queueBoundedQueueQVecU8Inst : queue.BoundedQueue Q (alloc.vec.Vec
@@ -865,7 +865,7 @@ def channel.Channel.send
     | core.result.Result.Err _ => ok (core.result.Result.Err (), self)
 
 /-- [framed_channel::channel::{framed_channel::channel::Channel<Q>}::deliver]:
-    Source: 'src/channel.rs', lines 148:4-163:5
+    Source: 'src/channel.rs', lines 150:4-165:5
     Visibility: public -/
 def channel.Channel.deliver
   {Q : Type} (queueBoundedQueueQVecU8Inst : queue.BoundedQueue Q (alloc.vec.Vec
@@ -892,7 +892,7 @@ def channel.Channel.deliver
       ok (core.result.Result.Err (), { self with out := t })
 
 /-- [framed_channel::channel::{framed_channel::channel::Channel<Q>}::take]:
-    Source: 'src/channel.rs', lines 166:4-168:5
+    Source: 'src/channel.rs', lines 168:4-170:5
     Visibility: public -/
 def channel.Channel.take
   {Q : Type} (queueBoundedQueueQVecU8Inst : queue.BoundedQueue Q (alloc.vec.Vec
@@ -903,7 +903,7 @@ def channel.Channel.take
   ok (o, { self with out := t })
 
 /-- [framed_channel::channel::{framed_channel::channel::Channel<Q>}::queued]:
-    Source: 'src/channel.rs', lines 171:4-173:5
+    Source: 'src/channel.rs', lines 173:4-175:5
     Visibility: public -/
 def channel.Channel.queued
   {Q : Type} (queueBoundedQueueQVecU8Inst : queue.BoundedQueue Q (alloc.vec.Vec
@@ -1351,6 +1351,247 @@ def ring_buffer.RingBuffer.Insts.CoreCloneClone {T : Type} (corecloneCloneInst
   clone := ring_buffer.RingBuffer.Insts.CoreCloneClone.clone corecloneCloneInst
     coredefaultDefaultInst corecloneCloneInst
 }
+
+/-- [framed_channel::stuff::MARKER]
+    Source: 'src/stuff.rs', lines 19:0-19:28
+    Visibility: public -/
+@[global_simps, irreducible] def stuff.MARKER : Std.U8 := 126#u8
+
+/-- [framed_channel::stuff::ESC]
+    Source: 'src/stuff.rs', lines 22:0-22:25
+    Visibility: public -/
+@[global_simps, irreducible] def stuff.ESC : Std.U8 := 125#u8
+
+/-- [framed_channel::stuff::XOR_MASK]
+    Source: 'src/stuff.rs', lines 26:0-26:30
+    Visibility: public -/
+@[global_simps, irreducible] def stuff.XOR_MASK : Std.U8 := 32#u8
+
+/-- [framed_channel::stuff::{impl core::fmt::Debug for framed_channel::stuff::UnstuffError}::fmt]:
+    Source: 'src/stuff.rs', lines 29:9-29:14
+    Visibility: public -/
+def stuff.UnstuffError.Insts.CoreFmtDebug.fmt
+  (self : stuff.UnstuffError) (f : core.fmt.Formatter) :
+  Result ((core.result.Result Unit core.fmt.Error) × core.fmt.Formatter)
+  := do
+  match self with
+  | stuff.UnstuffError.Truncated =>
+    core.fmt.Formatter.write_str f (toStr "Truncated")
+  | stuff.UnstuffError.BadEscape =>
+    core.fmt.Formatter.write_str f (toStr "BadEscape")
+
+/-- Trait implementation: [framed_channel::stuff::{impl core::fmt::Debug for framed_channel::stuff::UnstuffError}]
+    Source: 'src/stuff.rs', lines 29:9-29:14 -/
+@[reducible]
+def stuff.UnstuffError.Insts.CoreFmtDebug : core.fmt.Debug stuff.UnstuffError
+  := {
+  fmt := stuff.UnstuffError.Insts.CoreFmtDebug.fmt
+}
+
+/-- [framed_channel::stuff::{impl core::clone::Clone for framed_channel::stuff::UnstuffError}::clone]:
+    Source: 'src/stuff.rs', lines 29:16-29:21
+    Visibility: public -/
+def stuff.UnstuffError.Insts.CoreCloneClone.clone
+  (self : stuff.UnstuffError) : Result stuff.UnstuffError := do
+  ok self
+
+/-- Trait implementation: [framed_channel::stuff::{impl core::clone::Clone for framed_channel::stuff::UnstuffError}]
+    Source: 'src/stuff.rs', lines 29:16-29:21 -/
+@[reducible]
+def stuff.UnstuffError.Insts.CoreCloneClone : core.clone.Clone
+  stuff.UnstuffError := {
+  clone := stuff.UnstuffError.Insts.CoreCloneClone.clone
+}
+
+/-- Trait implementation: [framed_channel::stuff::{impl core::marker::Copy for framed_channel::stuff::UnstuffError}]
+    Source: 'src/stuff.rs', lines 29:23-29:27 -/
+@[reducible]
+def stuff.UnstuffError.Insts.CoreMarkerCopy : core.marker.Copy
+  stuff.UnstuffError := {
+  cloneInst := stuff.UnstuffError.Insts.CoreCloneClone
+}
+
+/-- Trait implementation: [framed_channel::stuff::{impl core::marker::StructuralPartialEq for framed_channel::stuff::UnstuffError}]
+    Source: 'src/stuff.rs', lines 29:29-29:38 -/
+@[reducible]
+def stuff.UnstuffError.Insts.CoreMarkerStructuralPartialEq :
+  core.marker.StructuralPartialEq stuff.UnstuffError := {
+}
+
+/-- [framed_channel::stuff::{impl core::cmp::PartialEq<framed_channel::stuff::UnstuffError> for framed_channel::stuff::UnstuffError}::eq]:
+    Source: 'src/stuff.rs', lines 29:29-29:38
+    Visibility: public -/
+def stuff.UnstuffError.Insts.CoreCmpPartialEqUnstuffError.eq
+  (self : stuff.UnstuffError) (other : stuff.UnstuffError) : Result Bool := do
+  let self1 := read_discriminant self
+  let other1 := read_discriminant other
+  ok (self1 = other1)
+
+/-- Trait implementation: [framed_channel::stuff::{impl core::cmp::PartialEq<framed_channel::stuff::UnstuffError> for framed_channel::stuff::UnstuffError}]
+    Source: 'src/stuff.rs', lines 29:29-29:38 -/
+@[reducible]
+def stuff.UnstuffError.Insts.CoreCmpPartialEqUnstuffError : core.cmp.PartialEq
+  stuff.UnstuffError stuff.UnstuffError := {
+  eq := stuff.UnstuffError.Insts.CoreCmpPartialEqUnstuffError.eq
+}
+
+/-- Trait implementation: [framed_channel::stuff::{impl core::cmp::Eq for framed_channel::stuff::UnstuffError}]
+    Source: 'src/stuff.rs', lines 29:40-29:42 -/
+@[reducible]
+impl_def stuff.UnstuffError.Insts.CoreCmpEq : core.cmp.Eq stuff.UnstuffError
+  := {
+  partialEqInst := stuff.UnstuffError.Insts.CoreCmpPartialEqUnstuffError
+  assert_fields_are_eq := core.cmp.Eq.assert_fields_are_eq.default
+    stuff.UnstuffError.Insts.CoreCmpEq
+}
+
+/-- [framed_channel::stuff::stuff]: loop body 0:
+    Source: 'src/stuff.rs', lines 45:4-58:1
+    Visibility: public -/
+@[rust_loop_body]
+def stuff.stuff_loop.body
+  (payload : Slice Std.U8) (out : alloc.vec.Vec Std.U8) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U8) × Std.Usize) (alloc.vec.Vec
+    Std.U8))
+  := do
+  let i1 := Slice.len payload
+  if i < i1
+  then
+    let o ←
+      core.slice.Slice.get (core.slice.index.SliceIndexUsizeSlice Std.U8)
+        payload i
+    match o with
+    | none => ok (done out)
+    | some b =>
+      let out1 ←
+        if b = stuff.MARKER
+        then
+          do
+          let out2 ← alloc.vec.Vec.push out stuff.ESC
+          let i2 ← lift (b ^^^ stuff.XOR_MASK)
+          alloc.vec.Vec.push out2 i2
+        else
+          if b = stuff.ESC
+          then
+            do
+            let out2 ← alloc.vec.Vec.push out stuff.ESC
+            let i2 ← lift (b ^^^ stuff.XOR_MASK)
+            alloc.vec.Vec.push out2 i2
+          else alloc.vec.Vec.push out b
+      let i2 ← i + 1#usize
+      ok (cont (out1, i2))
+  else ok (done out)
+
+/-- [framed_channel::stuff::stuff]: loop 0:
+    Source: 'src/stuff.rs', lines 45:4-58:1
+    Visibility: public -/
+@[rust_loop]
+def stuff.stuff_loop
+  (payload : Slice Std.U8) (out : alloc.vec.Vec Std.U8) (i : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  loop
+    (fun (out1, i1) => stuff.stuff_loop.body payload out1 i1)
+    (out, i)
+
+/-- [framed_channel::stuff::stuff]:
+    Source: 'src/stuff.rs', lines 43:0-58:1
+    Visibility: public -/
+@[reducible]
+def stuff.stuff
+  (payload : Slice Std.U8) (out : alloc.vec.Vec Std.U8) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  stuff.stuff_loop payload out 0#usize
+
+/-- [framed_channel::stuff::encode_frame]:
+    Source: 'src/stuff.rs', lines 64:0-67:1
+    Visibility: public -/
+def stuff.encode_frame
+  (payload : Slice Std.U8) (out : alloc.vec.Vec Std.U8) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  let out1 ← stuff.stuff payload out
+  alloc.vec.Vec.push out1 stuff.MARKER
+
+/-- [framed_channel::stuff::unstuff]: loop body 0:
+    Source: 'src/stuff.rs', lines 80:4-104:1
+    Visibility: public -/
+@[rust_loop_body]
+def stuff.unstuff_loop.body
+  (wire : Slice Std.U8) (out : alloc.vec.Vec Std.U8) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U8) × Std.Usize) (core.result.Result
+    ((alloc.vec.Vec Std.U8) × Std.Usize) stuff.UnstuffError))
+  := do
+  let i1 := Slice.len wire
+  if i < i1
+  then
+    let o ←
+      core.slice.Slice.get (core.slice.index.SliceIndexUsizeSlice Std.U8) wire
+        i
+    match o with
+    | none => ok (done (core.result.Result.Err stuff.UnstuffError.Truncated))
+    | some b =>
+      if b = stuff.MARKER
+      then let i2 ← i + 1#usize
+           ok (done (core.result.Result.Ok (out, i2)))
+      else
+        if b = stuff.ESC
+        then
+          let i2 ← i + 1#usize
+          let o1 ←
+            core.slice.Slice.get (core.slice.index.SliceIndexUsizeSlice Std.U8)
+              wire i2
+          match o1 with
+          | none =>
+            ok (done (core.result.Result.Err stuff.UnstuffError.Truncated))
+          | some c =>
+            let i3 ← lift (stuff.MARKER ^^^ stuff.XOR_MASK)
+            if c != i3
+            then
+              let i4 ← lift (stuff.ESC ^^^ stuff.XOR_MASK)
+              if c != i4
+              then
+                ok (done (core.result.Result.Err stuff.UnstuffError.BadEscape))
+              else
+                let i5 ← lift (c ^^^ stuff.XOR_MASK)
+                let out1 ← alloc.vec.Vec.push out i5
+                let i6 ← i + 2#usize
+                ok (cont (out1, i6))
+            else
+              let i4 ← lift (c ^^^ stuff.XOR_MASK)
+              let out1 ← alloc.vec.Vec.push out i4
+              let i5 ← i + 2#usize
+              ok (cont (out1, i5))
+        else
+          let out1 ← alloc.vec.Vec.push out b
+          let i2 ← i + 1#usize
+          ok (cont (out1, i2))
+  else ok (done (core.result.Result.Err stuff.UnstuffError.Truncated))
+
+/-- [framed_channel::stuff::unstuff]: loop 0:
+    Source: 'src/stuff.rs', lines 80:4-104:1
+    Visibility: public -/
+@[rust_loop]
+def stuff.unstuff_loop
+  (wire : Slice Std.U8) (out : alloc.vec.Vec Std.U8) (i : Std.Usize) :
+  Result (core.result.Result ((alloc.vec.Vec Std.U8) × Std.Usize)
+    stuff.UnstuffError)
+  := do
+  loop
+    (fun (out1, i1) => stuff.unstuff_loop.body wire out1 i1)
+    (out, i)
+
+/-- [framed_channel::stuff::unstuff]:
+    Source: 'src/stuff.rs', lines 77:0-104:1
+    Visibility: public -/
+@[reducible]
+def stuff.unstuff
+  (wire : Slice Std.U8) :
+  Result (core.result.Result ((alloc.vec.Vec Std.U8) × Std.Usize)
+    stuff.UnstuffError)
+  := do
+  stuff.unstuff_loop wire (alloc.vec.Vec.new Std.U8) 0#usize
 
 /-- [framed_channel::varint::{impl core::fmt::Debug for framed_channel::varint::VarintError}::fmt]:
     Source: 'src/varint.rs', lines 8:9-8:14

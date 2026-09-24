@@ -18,13 +18,13 @@ set_option maxRecDepth 2048
 namespace framed_channel
 
 /-- [framed_channel::channel::DeliverFail]
-    Source: 'src/channel.rs', lines 36:0-36:23
+    Source: 'src/channel.rs', lines 38:0-38:23
     Visibility: public -/
 @[reducible]
 def channel.DeliverFail := Unit
 
 /-- [framed_channel::channel::SendFail]
-    Source: 'src/channel.rs', lines 43:0-43:20
+    Source: 'src/channel.rs', lines 45:0-45:20
     Visibility: public -/
 @[reducible]
 def channel.SendFail := Unit
@@ -38,7 +38,7 @@ inductive varint.VarintError where
 | Overlong : varint.VarintError
 
 /-- [framed_channel::channel::Channel]
-    Source: 'src/channel.rs', lines 95:0-99:1
+    Source: 'src/channel.rs', lines 97:0-101:1
     Visibility: public -/
 structure channel.Channel (Q : Type) where
   out : Q
@@ -80,5 +80,13 @@ structure queue.BoundedQueue (Self : Type) (T : Type) where
 structure queue.VecQueue (T : Type) where
   items : alloc.vec.Vec T
   cap : Std.Usize
+
+/-- [framed_channel::stuff::UnstuffError]
+    Source: 'src/stuff.rs', lines 30:0-36:1
+    Visibility: public -/
+@[discriminant isize]
+inductive stuff.UnstuffError where
+| Truncated : stuff.UnstuffError
+| BadEscape : stuff.UnstuffError
 
 end framed_channel
