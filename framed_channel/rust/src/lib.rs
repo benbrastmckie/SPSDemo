@@ -15,6 +15,7 @@ pub mod channel;
 pub mod crc8;
 pub mod queue;
 pub mod ring_buffer;
+pub mod stuff;
 pub mod varint;
 
 pub use channel::{Channel, DeliverFail, Frame, SendFail, MARKER};
