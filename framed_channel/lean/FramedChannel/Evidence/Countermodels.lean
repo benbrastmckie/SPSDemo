@@ -1,6 +1,7 @@
 -- SPDX-License-Identifier: Apache-2.0
 import FramedChannel.Ladder
 import FramedChannel.Model.Varint.Theorems
+import FramedChannel.Model.Stuff.Theorems
 import FramedChannel.Composition.Channel.Theorems
 
 /-!
@@ -128,6 +129,56 @@ theorem idx_ne_le_false : ¬ idx_ne_le :=
 
 refuted% idx_ne_le idx_ne_le_false search_idx_ne_le
 
+/-! ## 5. Byte stuffing without expansion -/
+
+/-- The rejected candidate: framing a payload costs at most the one flag byte -- that is, stuffing
+never expands. It is the shape someone reaches for when writing the bound before noticing that an
+escape emits two bytes for one. -/
+def encode_no_expansion : Prop := ∀ p : List Nat, (Stuff.encode p).length ≤ p.length + 1
+
+set_option maxRecDepth 100000 in
+/-- Over the all-marker payloads of length `0..7`, the first whose framed encoding is longer than
+the payload plus the flag is `[marker]`: the single reserved byte becomes a two-byte escape.
+`[PROVED: kernel]` -/
+theorem search_encode_no_expansion :
+    ((List.range 8).map (fun k => List.replicate k Stuff.marker)).find?
+        (fun p => !decide ((Stuff.encode p).length ≤ p.length + 1))
+      = some [Stuff.marker] := by
+  decide +kernel
+
+set_option maxRecDepth 100000 in
+/-- `[PROVED: kernel]` -/
+theorem encode_no_expansion_false : ¬ encode_no_expansion :=
+  fun h => absurd (h [Stuff.marker]) (by decide +kernel)
+
+refuted% encode_no_expansion encode_no_expansion_false search_encode_no_expansion
+
+/-! ## 6. `CodecLaws.length_le` at `Stuff` without the domain's payload-length bound -/
+
+/-- The rejected candidate: every payload frames inside the instance's constant `maxLen`. This is
+the statement `CodecLaws.length_le` would make if `Stuff.instCodecModel.Dom` carried only the
+byte-range condition and not `p.length ≤ 255`, and it is why that second conjunct is there. A
+codec whose encoding grows with its input cannot be bounded by a constant on an unbounded
+domain. -/
+def stuff_maxLen_unbounded : Prop := ∀ p : List Nat, (Stuff.encode p).length ≤ 2 * 255 + 1
+
+set_option maxRecDepth 1000000 in
+/-- Over the all-marker payloads of lengths `0, 64, 128, 192, 256`, the first to overrun the
+constant bound is the 256-byte one: stuffing doubles it to 512 bytes, and the flag makes 513.
+`[PROVED: kernel]` -/
+theorem search_stuff_maxLen_unbounded :
+    ([0, 64, 128, 192, 256].map (fun k => List.replicate k Stuff.marker)).find?
+        (fun p => !decide ((Stuff.encode p).length ≤ 2 * 255 + 1))
+      = some (List.replicate 256 Stuff.marker) := by
+  decide +kernel
+
+set_option maxRecDepth 1000000 in
+/-- `[PROVED: kernel]` -/
+theorem stuff_maxLen_unbounded_false : ¬ stuff_maxLen_unbounded :=
+  fun h => absurd (h (List.replicate 256 Stuff.marker)) (by decide +kernel)
+
+refuted% stuff_maxLen_unbounded stuff_maxLen_unbounded_false search_stuff_maxLen_unbounded
+
 #print axioms search_encode_length_le_unbounded
 #print axioms encode_length_le_unbounded_false
 #print axioms search_varint_roundtrip_unbounded
@@ -136,5 +187,9 @@ refuted% idx_ne_le idx_ne_le_false search_idx_ne_le
 #print axioms parseFrameResync_roundtrip_false
 #print axioms search_idx_ne_le
 #print axioms idx_ne_le_false
+#print axioms search_encode_no_expansion
+#print axioms encode_no_expansion_false
+#print axioms search_stuff_maxLen_unbounded
+#print axioms stuff_maxLen_unbounded_false
 
 end FramedChannel

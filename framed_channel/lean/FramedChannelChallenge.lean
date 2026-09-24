@@ -3,6 +3,7 @@ import FramedChannelChallenge.RingBuffer
 import FramedChannelChallenge.VecQueue
 import FramedChannelChallenge.Varint
 import FramedChannelChallenge.Crc8
+import FramedChannelChallenge.Stuff
 import FramedChannelChallenge.Channel
 
 /-!
