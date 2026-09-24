@@ -156,3 +156,8 @@ specification:
     approver: "lean-implementation-agent (agent) <noreply@anthropic.com>"
     by: agent
     date: 2026-09-22
+  - challenge: FramedChannelChallenge.Stuff
+    spec_digest: 2294487559761181923
+    approver: "lean-implementation-agent (agent) <noreply@anthropic.com>"
+    by: agent
+    date: 2026-09-24
