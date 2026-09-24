@@ -3,6 +3,7 @@ import FramedChannel.Certify
 import FramedChannel.Model.RingBuffer.Theorems
 import FramedChannel.Model.Varint.Theorems
 import FramedChannel.Model.Crc8.Theorems
+import FramedChannel.Model.Stuff.Theorems
 import FramedChannel.Model.VecQueue.Theorems
 import FramedChannel.Composition.Channel.Theorems
 import FramedChannel.Composition.Channel.Instances
@@ -28,6 +29,7 @@ which `check.sh` cross-checks (`certificate/README.md`).
 refines        RingBuffer -> BoundedQueue   (RingBuffer.instBoundedQueueLaws; Rust RingBuffer<T>)
 refines        VQ         -> BoundedQueue   (VecQueue.instBoundedQueueLaws;   Rust VecQueue<T>)
 refines        Varint     -> CodecLaws      (Varint.instCodecLaws)
+refines        Stuff      -> CodecLaws      (Stuff.instCodecLaws)
 refines        Crc8       -> ChecksumLaws   (Crc8.instChecksumLawsBitwise, ...Tabled)
 distilled_from inv_preserve   <- {push_inv, pop_inv}
 distilled_from refine_commute <- {push_contents, pop_contents}
@@ -87,6 +89,17 @@ def items : List CertifiedItem :=
       "the encoding fits in five bytes on the u32 domain",
     register% Varint.instCodecLaws     ItemType.E2 2 true 3510309193
       "LEB128 satisfies the codec laws",
+    -- Stuff: HDLC-style byte stuffing
+    register% Stuff.stuff_marker_free  ItemType.E1 1 true 4085196778
+      "a stuffed payload contains no frame boundary byte",
+    register% Stuff.stuff_roundtrip    ItemType.E2 2 true 4090422188
+      "decode (encode p) for every payload, with nothing left over",
+    register% Stuff.stuff_length_le    ItemType.E1 1 true 3415623517
+      "stuffing at most doubles the payload",
+    register% Stuff.encode_length_le   ItemType.E1 1 true 1319576769
+      "the framed encoding is at most twice the payload plus the flag",
+    register% Stuff.instCodecLaws      ItemType.E2 2 true 677937794
+      "HDLC byte stuffing satisfies the codec laws",
     -- VecQueue: the second bounded-queue instance (E2)
     register% VecQueue.instBoundedQueueLaws ItemType.E2 2 true 2688892127
       "VQ satisfies the six laws",
@@ -122,8 +135,8 @@ def bank : List Item := toBank items
 #print axioms items
 #print axioms bank
 
-/-- Thirty-four rows. -/
-example : bank.length = 34 := by decide
+/-- Thirty-nine rows. -/
+example : bank.length = 39 := by decide
 
 /-- Every row names a nonvacuity witness. -/
 example : bank.all Item.hasWitness = true := by decide
@@ -132,10 +145,10 @@ example : bank.all Item.hasWitness = true := by decide
 example : noOpenScored bank := noOpenScored_all bank
 
 /-- The kernel-scored total. -/
-example : totalScore bank = 86 := by decide
+example : totalScore bank = 98 := by decide
 
 /-- The achievable total, counting the one compiler-trusting row. -/
-example : totalMax bank = 88 := by decide
+example : totalMax bank = 100 := by decide
 
 /-! ## Coverage: what is deliberately not registered
 
@@ -144,6 +157,10 @@ Every component has at minimum an error-agreement or bounds row (`E1`) and a ref
 
 * `RingBuffer.push_inv_grind`, `push_inv_tac`, `push_contents_tac`, `pop_contents_tac` --
   automation measurements, not obligations. They are proved and audited; they earn no bank row.
+* (Stuff leaves nothing out either: all four of its theorems and its `CodecLaws` instance are
+  registered. The supporting lemmas -- the xor identities, the `stuffByte` equations, the decoder's
+  generalized loop invariant `unstuff_stuff`, and `stuff_bytes_lt` -- are steps of those five
+  proofs, not obligations of their own, so they earn no bank row.)
 * (Crc8 leaves nothing out: BOTH `ChecksumLaws` instances are registered.
   `instChecksumLawsTabled` used to be excluded as double-counting `crc8_table_eq_bits`, but the
   bridge registers both of ITS extracted `ChecksumLaws` instances, so excluding the core's second
