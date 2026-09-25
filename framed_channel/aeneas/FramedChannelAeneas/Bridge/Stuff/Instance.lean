@@ -111,6 +111,7 @@ theorem instCodecLaws_extracted : CodecLaws ExtractedHdlc (List Nat) where
 
 end FramedChannel.Bridge.stuff
 
+#print axioms FramedChannel.Bridge.stuff.sliceOfBytes_length
 #print axioms FramedChannel.Bridge.stuff.bytesOf_sliceOfBytes
 #print axioms FramedChannel.Bridge.stuff.encode_bytes_lt
 #print axioms FramedChannel.Bridge.stuff.extEncode_eq

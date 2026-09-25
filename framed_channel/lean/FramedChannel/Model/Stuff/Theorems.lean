@@ -229,8 +229,16 @@ ladder_record% instCodecLaws instance
 
 #print axioms escMarker_eq
 #print axioms escEsc_eq
+#print axioms esc_ne_marker
+#print axioms escMarker_ne_marker
+#print axioms escEsc_ne_marker
+#print axioms stuffByte_marker
+#print axioms stuffByte_esc
+#print axioms stuffByte_other
 #print axioms stuffByte_marker_free
 #print axioms stuff_marker_free
+#print axioms unstuff_cons_plain
+#print axioms stuff_append_marker_ne_nil
 #print axioms unstuff_stuff
 #print axioms stuff_roundtrip
 #print axioms stuff_length_le

@@ -409,6 +409,16 @@ theorem roundtrip_extracted (payload : Slice Std.U8)
 
 end FramedChannel.Bridge.stuff
 
+#print axioms FramedChannel.Bridge.stuff.unstuff_nil
+#print axioms FramedChannel.Bridge.stuff.unstuff_marker
+#print axioms FramedChannel.Bridge.stuff.unstuff_plain
+#print axioms FramedChannel.Bridge.stuff.unstuff_esc_last
+#print axioms FramedChannel.Bridge.stuff.unstuff_esc_marker
+#print axioms FramedChannel.Bridge.stuff.unstuff_esc_esc
+#print axioms FramedChannel.Bridge.stuff.unstuff_esc_bad
+#print axioms FramedChannel.Bridge.stuff.bytesOf_push_reverse
+#print axioms FramedChannel.Bridge.stuff.getElem?_some_lt
+#print axioms FramedChannel.Bridge.stuff.eq_getElem_of_getElem?
 #print axioms FramedChannel.Bridge.stuff.unstuff_loop_refines
 #print axioms FramedChannel.Bridge.stuff.unstuff_refines
 #print axioms FramedChannel.Bridge.stuff.decode_ok_refines

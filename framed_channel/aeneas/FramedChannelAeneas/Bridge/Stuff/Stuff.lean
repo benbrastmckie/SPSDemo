@@ -230,6 +230,16 @@ theorem encode_frame_refines (payload : Slice Std.U8) (out : alloc.vec.Vec Std.U
 
 end FramedChannel.Bridge.stuff
 
+#print axioms FramedChannel.Bridge.stuff.MARKER_val
+#print axioms FramedChannel.Bridge.stuff.ESC_val
+#print axioms FramedChannel.Bridge.stuff.marker_eq
+#print axioms FramedChannel.Bridge.stuff.esc_eq
+#print axioms FramedChannel.Bridge.stuff.marker_xor
+#print axioms FramedChannel.Bridge.stuff.esc_xor
+#print axioms FramedChannel.Bridge.stuff.stuff_nil
+#print axioms FramedChannel.Bridge.stuff.bytesOf_length
+#print axioms FramedChannel.Bridge.stuff.bytesOf_append
+#print axioms FramedChannel.Bridge.stuff.bytesOf_drop_cons
 #print axioms FramedChannel.Bridge.stuff.stuff_loop_refines
 #print axioms FramedChannel.Bridge.stuff.stuff_refines
 #print axioms FramedChannel.Bridge.stuff.stuff_out_length
