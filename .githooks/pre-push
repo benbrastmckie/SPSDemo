@@ -17,6 +17,11 @@
 # Escape hatch for a deliberate WIP push: SKIP_CORE_ONLY_HOOK=1 git push ...
 # Prefer this over --no-verify, which would also skip every other hook this repository ever adds.
 #
+# Environment:
+#   SKIP_CORE_ONLY_HOOK                  "1" skips this hook entirely for one push
+#   PRE_PUSH_HOOK_TEST_NIX_DAEMON_PROFILE   test-only override of the Nix daemon profile script
+#                                         path below; unset on a real push (see that line's comment)
+#
 # Usage: SKIP_CORE_ONLY_HOOK=1 git push ...   (skip this hook once, for a deliberate WIP push)
 #        bash .githooks/pre-push --help       (print this header; git itself never passes --help)
 # Requires: bash >= 3.2 (this hook runs under the host bash, outside every Nix dev shell -- see
@@ -54,8 +59,13 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 if ! command -v nix > /dev/null 2>&1; then
   # Same fallback ci-windows.yml's steps use when a fresh shell has not sourced the Nix profile.
-  # shellcheck disable=SC1091
-  . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh 2>/dev/null || true
+  # The path is overridable ONLY so tests/pre-push-hook/run.sh can point it at a file guaranteed
+  # not to exist, making its "nix absent" case hermetic regardless of whether the real host
+  # happens to have a multi-user Nix daemon profile at the real path (e.g. a runner provisioned
+  # in daemon mode); a real push never sets this variable, so the resolved path is always the
+  # one named below.
+  # shellcheck disable=SC1090
+  . "${PRE_PUSH_HOOK_TEST_NIX_DAEMON_PROFILE:-/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh}" 2>/dev/null || true
 fi
 if ! command -v nix > /dev/null 2>&1; then
   echo "pre-push: nix is not on PATH and could not be resolved via the Nix daemon profile script." >&2
