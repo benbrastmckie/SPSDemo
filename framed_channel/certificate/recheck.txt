@@ -2,8 +2,8 @@
 # What each checker establishes, and what it does not: certificate/README.md, "recheck.txt",
 # and every manifest's trust.G0_checker.independent_recheck block. This record is current only
 # while the identity below equals the identity line of digests.txt.
-certificate identity: sha256:bdbc02f9adac3e76c57cad79473e5e10482c436f40579d59bd50143d062dade9
-produced on: Linux x86_64 (local)
+certificate identity: sha256:70bf232c8404b6322d075b6eeff25a65e533415d94b61ed9f2dacd310dc392fc
+produced on: Linux x86_64 (CI: verify.yml recheck job)
 record: complete
 
 ## tool revisions
@@ -24,8 +24,8 @@ landrun: 0.1.17 (/nix/store/k7xmll89n7zyhjpcp3kc3ynfk6lfj5r0-landrun-0.1.17/bin/
 [ok] lean4export was built by the project's Lean (68218e8)
 [ok] comparator is the d03acab1 build (/nix/store/9flsz6bs2jgqqa08yjsw05j76h3gf598-comparator-0.1.0-d03acab1/bin/comparator)
 [ok] landrun 0.1.17 enforces Landlock (a write under --ro / was denied)
-[ok] landrun --best-effort denies network access (a TCP connect with no grant got EACCES; kernel Landlock ABI >= the ABI landrun 0.1.17 requests)
-[ok] unprivileged (uid 1000)
+[ok] landrun --best-effort denies network access (a TCP connect with no grant got EACCES; kernel Landlock ABI v7)
+[ok] unprivileged (uid 1001)
 [ok] systemd-run --user works
 
 ## sandbox deviations
@@ -34,9 +34,9 @@ landrun: 0.1.17 (/nix/store/k7xmll89n7zyhjpcp3kc3ynfk6lfj5r0-landrun-0.1.17/bin/
 # recheck/landrun-shim.sh; none grants write access outside the room's .lake directories.
 # A 'PATH: lake is ...' line is not a grant: where the toolchain's lake is a shell wrapper,
 # the rooms run the binary it wraps (scripts/recheck-comparator.sh explains why).
+--env CI=true  [bridge,core,flagged-FramedChannel.Crc8.crc8_step_linear]
 --env TMPDIR=<room>/aeneas/.lake/tmp  [bridge]
 --env TMPDIR=<room>/lean/.lake/tmp  [core,flagged-FramedChannel.Crc8.crc8_step_linear]
---rox /nix/store/6c1xq71lq291yrm3586kxmw0gqjf4l0v-nix-ld-2.0.6/bin/nix-ld  [bridge,core,flagged-FramedChannel.Crc8.crc8_step_linear]
 --rox /nix/store/fl0wgyyqi2ra1rpkvb3f4aa2ndxghj2h-zlib-ng-2.3.3/lib/libz-ng.so.2  [bridge,core,flagged-FramedChannel.Crc8.crc8_step_linear]
 --rox /nix/store/fnx2wbj1rqqgf8d29daqnz2qwjxnc96p-pcre2-10.48/lib/libpcre2-8.so.0  [bridge,core,flagged-FramedChannel.Crc8.crc8_step_linear]
 --rox /nix/store/znb3q6g1ik34454j3vcjx824h1871asg-glibc-2.42-84/lib/ld-linux-x86-64.so.2  [bridge,core,flagged-FramedChannel.Crc8.crc8_step_linear]
@@ -45,6 +45,7 @@ landrun: 0.1.17 (/nix/store/k7xmll89n7zyhjpcp3kc3ynfk6lfj5r0-landrun-0.1.17/bin/
 --rox /nix/store/znb3q6g1ik34454j3vcjx824h1871asg-glibc-2.42-84/lib64/ld-linux-x86-64.so.2  [bridge,core,flagged-FramedChannel.Crc8.crc8_step_linear]
 --rox <toolchain>/lib/libgcc_s.so.1  [bridge,core,flagged-FramedChannel.Crc8.crc8_step_linear]
 --rwx <room>/lean/.lake  [bridge]
+PATH: lake is <toolchain>/bin/lake.orig (the toolchain's lake is a shell wrapper around it)  [bridge,core,flagged-FramedChannel.Crc8.crc8_step_linear]
 
 ## hardening (added restrictions, not deviations)
 # The static design (systemd-run --user without AF_UNIX, the outer landrun --best-effort
