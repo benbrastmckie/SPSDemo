@@ -21,6 +21,10 @@
 #   6. nix absent from PATH (and the daemon-profile override points at a nonexistent file)
 #                                    -> hook exits non-zero with the actionable message
 #   7. the argument vector reaching the stub carries both --core-only and the #build attribute
+#   8. a PATH directory providing an `aeneas` executable is dropped for the run, and the hook
+#        still proceeds -- the developer-machine leak the filter exists to close (a user-profile
+#        aeneas whose revision does not match the pin would otherwise fail check.sh's coherence
+#        stage, which the CI leg never reaches because a runner has no such profile)
 #
 # Usage: bash tests/pre-push-hook/run.sh [-h | --help]      (from any directory)
 # Requires: bash >= 4.4.
@@ -87,6 +91,15 @@ for _d in "${_path_dirs[@]}"; do
   path_no_nix="$path_no_nix:$_d"
 done
 path_no_nix="${path_no_nix#:}"
+
+# A directory that provides an `aeneas` executable, standing in for the user profile a developer
+# machine may carry. Never executed: the hook only ever tests -x on it, so an empty executable is
+# a faithful stand-in for a real (mismatched-revision) aeneas.
+leak="$work/leaked-profile-bin"
+mkdir -p "$leak"
+: > "$leak/aeneas"
+chmod +x "$leak/aeneas"
+path_with_leak="$bin:$leak:$PATH"
 
 real_bash="$(command -v bash)"
 failures=0
@@ -163,6 +176,13 @@ grep -qF -- "--core-only" "$work/develop-$case_num.log" || {
   echo "[FAIL] argument vector carries --core-only: not found in $work/develop-$case_num.log"
   failures=$((failures + 1))
 }
+
+# 8. A PATH entry providing aeneas is dropped before nix is invoked, and the run still proceeds.
+# Without the filter this leaked binary reaches check.sh's aeneas revision coherence stage, which
+# FAILS a revision that is not a prefix of the pin (scripts/lib/aeneas-revs.sh) while SKIPPING an
+# absent one -- so the push would abort for a condition --core-only does not even establish.
+run_case "aeneas-providing PATH entry is dropped -> hook still proceeds" \
+  "NIX_STUB_DEVELOP_EXIT=3" "$path_with_leak" 0 "dropping '$leak' from PATH for this run" "--core-only"
 
 if [ "$failures" -ne 0 ]; then
   echo "tests/pre-push-hook: $failures of $case_num case(s) failed"

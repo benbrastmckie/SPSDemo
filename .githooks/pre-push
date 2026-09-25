@@ -17,6 +17,10 @@
 # Escape hatch for a deliberate WIP push: SKIP_CORE_ONLY_HOOK=1 git push ...
 # Prefer this over --no-verify, which would also skip every other hook this repository ever adds.
 #
+# PATH: every entry providing an `aeneas` or `charon` executable is dropped for this run, so the
+# pre-check sees the aeneas-free environment its CI counterpart runs in rather than whatever the
+# developer happens to have installed. Rationale at the filter itself, below.
+#
 # Environment:
 #   SKIP_CORE_ONLY_HOOK                  "1" skips this hook entirely for one push
 #   PRE_PUSH_HOOK_TEST_NIX_DAEMON_PROFILE   test-only override of the Nix daemon profile script
@@ -75,9 +79,40 @@ if ! command -v nix > /dev/null 2>&1; then
   exit 1
 fi
 
+# Resolve nix to an absolute path BEFORE the PATH filter below, so the filter can never drop
+# the directory nix itself lives in (on some machines that is the same user profile that
+# provides the binaries being filtered out).
+NIX_BIN="$(command -v nix)"
+
+# Reproduce CI's aeneas-free PATH for this run. `.#build` deliberately ships no charon/aeneas
+# (see flake.nix's `build` devShell comment), because check.sh's aeneas revision coherence stage
+# SKIPS a binary that is absent but FAILS one whose revision is not a prefix of the pin (see
+# scripts/lib/aeneas-revs.sh). A CI runner has no user profile, so the stage skips there; a
+# developer machine with aeneas installed in a profile leaks that binary into the shell through
+# the inherited PATH, and the stage then fails the push over a pin mismatch --core-only is not
+# even meant to establish. Dropping every PATH entry that provides one of the two binaries makes
+# the local pre-check agree with the CI leg it exists to mirror. Written for bash 3.2 (no
+# mapfile, no arrays needed).
+CORE_ONLY_PATH=""
+_saved_ifs="$IFS"
+IFS=":"
+for _path_dir in $PATH; do
+  [ -n "$_path_dir" ] || continue
+  if [ -x "$_path_dir/aeneas" ] || [ -x "$_path_dir/charon" ]; then
+    echo "pre-push: dropping '$_path_dir' from PATH for this run (it provides aeneas/charon, which the --core-only pre-check runs without; see this hook's header)"
+    continue
+  fi
+  if [ -z "$CORE_ONLY_PATH" ]; then
+    CORE_ONLY_PATH="$_path_dir"
+  else
+    CORE_ONLY_PATH="$CORE_ONLY_PATH:$_path_dir"
+  fi
+done
+IFS="$_saved_ifs"
+
 echo "pre-push: nix develop \"$ROOT#build\" --command bash framed_channel/check.sh --core-only"
 rc=0
-nix develop "$ROOT#build" --command bash "$ROOT/framed_channel/check.sh" --core-only || rc=$?
+PATH="$CORE_ONLY_PATH" "$NIX_BIN" develop "$ROOT#build" --command bash "$ROOT/framed_channel/check.sh" --core-only || rc=$?
 if [ "$rc" -eq 3 ]; then
   echo "pre-push: check.sh --core-only ended INCOMPLETE (exit 3) by design; push proceeding"
   exit 0
