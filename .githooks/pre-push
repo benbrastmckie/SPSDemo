@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+# .githooks/pre-push -- run `check.sh --core-only` before every push, so the bridge-skipped/
+# owner-classification branch of check.sh (the only branch --core-only reaches) is never
+# invisible locally and caught only after a push. Activated by `install.sh`
+# (`git config core.hooksPath .githooks`); git invokes this exact filename directly once that is
+# set, passing the remote name and URL as arguments and the ref update list on stdin, neither of
+# which this hook needs -- it always runs the same core-only pre-check regardless of what is
+# being pushed.
+#
+# --core-only ends INCOMPLETE (exit 3) by design (see check.sh --help): that is this hook's own
+# pass condition. Any other exit code -- including 0, which would mean check.sh claimed PASS
+# without the bridge -- aborts the push. See docs/development.md's "The fast inner loop" section
+# for why --core-only is not substitutable by --committed-extraction or the full gate for the
+# ownership-classification defect class this hook exists to catch before a push.
+#
+# Escape hatch for a deliberate WIP push: SKIP_CORE_ONLY_HOOK=1 git push ...
+# Prefer this over --no-verify, which would also skip every other hook this repository ever adds.
+#
+# Usage: SKIP_CORE_ONLY_HOOK=1 git push ...   (skip this hook once, for a deliberate WIP push)
+#        bash .githooks/pre-push --help       (print this header; git itself never passes --help)
+# Requires: bash >= 3.2 (this hook runs under the host bash, outside every Nix dev shell -- see
+# framed_channel/tests/launcher-compat/run.sh, which scans this file as part of the launcher
+# set); nix on PATH, or resolvable via the Nix daemon profile script (see below).
+# Exit: 0 the push proceeds (check.sh --core-only ended INCOMPLETE, exit 3, or the skip hatch was
+# used), 1 the push is aborted (an unexpected check.sh --core-only exit code, or nix could not be
+# resolved), 2 usage error.
+
+# Before anything else is parsed, so a pre-3.2 bash (or sh) gets a clear message.
+if [ -z "${BASH_VERSION:-}" ]; then
+  echo "pre-push: run with bash >= 3.2 (bash .githooks/pre-push)" >&2
+  exit 2
+fi
+case "$BASH_VERSION" in
+  [0-2].*|3.[01].*)
+    echo "pre-push: bash >= 3.2 is required (this is bash $BASH_VERSION)" >&2
+    exit 2 ;;
+esac
+
+set -u
+
+case "${1:-}" in
+  -h|--help)
+    awk 'NR > 2 && !/^#/ { exit } NR > 2 { sub(/^# ?/, ""); print }' "${BASH_SOURCE[0]}"
+    exit 0 ;;
+esac
+
+if [ "${SKIP_CORE_ONLY_HOOK:-0}" = 1 ]; then
+  echo "pre-push: SKIP_CORE_ONLY_HOOK=1 is set; skipping check.sh --core-only for this push"
+  exit 0
+fi
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+if ! command -v nix > /dev/null 2>&1; then
+  # Same fallback ci-windows.yml's steps use when a fresh shell has not sourced the Nix profile.
+  # shellcheck disable=SC1091
+  . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh 2>/dev/null || true
+fi
+if ! command -v nix > /dev/null 2>&1; then
+  echo "pre-push: nix is not on PATH and could not be resolved via the Nix daemon profile script." >&2
+  echo "pre-push: install Nix (see README.md's Install section) and re-push, or, for a" >&2
+  echo "pre-push: deliberate WIP push, use SKIP_CORE_ONLY_HOOK=1 git push ... (never --no-verify:" >&2
+  echo "pre-push: it would also skip every other hook this repository ever adds)." >&2
+  exit 1
+fi
+
+echo "pre-push: nix develop \"$ROOT#build\" --command bash framed_channel/check.sh --core-only"
+rc=0
+nix develop "$ROOT#build" --command bash "$ROOT/framed_channel/check.sh" --core-only || rc=$?
+if [ "$rc" -eq 3 ]; then
+  echo "pre-push: check.sh --core-only ended INCOMPLETE (exit 3) by design; push proceeding"
+  exit 0
+fi
+if [ "$rc" -eq 0 ]; then
+  echo "pre-push: check.sh --core-only exited 0; the pre-check ends INCOMPLETE (exit 3) by design, and an exit 0 here would mean check.sh claimed PASS without the bridge" >&2
+else
+  echo "pre-push: check.sh --core-only exited $rc; the pre-check ends INCOMPLETE (exit 3) by design" >&2
+fi
+echo "pre-push: aborting push. For a deliberate WIP push, use SKIP_CORE_ONLY_HOOK=1 git push ..." >&2
+exit 1
