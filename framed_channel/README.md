@@ -1,12 +1,12 @@
 # framed_channel
 
 A worked example of the verification pipeline on one small piece of software: a framed message
-channel in Rust, built from four components -- a `RingBuffer`, a list-backed queue (`VecQueue`),
-a LEB128 `Varint` codec and a `Crc8` checksum -- plus the composite
-`Channel`: five certified units. Each unit has a Lean model, an interface it instantiates, theorems,
-registry rows and a certificate manifest; the composite is proved from the component theorems and
-the interface laws alone. A Charon/Aeneas extraction of the whole crate is connected to all five
-models by kernel-checked refinement theorems.
+channel in Rust, built from five components -- a `RingBuffer`, a list-backed queue (`VecQueue`),
+a LEB128 `Varint` codec, a `Crc8` checksum and an HDLC byte-stuffing codec (`Stuff`) -- plus the
+composite `Channel`: the certified units of this example. Each unit has a Lean model, an interface
+it instantiates, theorems, registry rows and a certificate manifest; the composite is proved from
+the component theorems and the interface laws alone. A Charon/Aeneas extraction of the whole crate
+is connected to every model by kernel-checked refinement theorems.
 
 The gate requires the `aeneas/` package (the extraction and its bridge proofs), and with it the
 Aeneas Lean library and therefore Mathlib: about 7 GB and a network fetch the first time, and
@@ -158,7 +158,8 @@ as `instance`, with no audit claimed.
 
 **Countermodels.** `lean/FramedChannel/Evidence/Countermodels.lean` refutes rejected candidate
 statements in the kernel: the varint theorems without `n < 2 ^ 32`, a receiver that treats a
-second `0x7E` as a new boundary, and `idx_ne` with `i ≤ len`. Each witness is the first failure of
+second `0x7E` as a new boundary, `idx_ne` with `i ≤ len`, a stuffed encoding that does not expand
+the payload, and an unbounded stuffed-length bound. Each witness is the first failure of
 a `decide +kernel` search over an explicit enumeration, recorded by `refuted%` into
 `certificate/countermodels.txt`. The search covers only the domain it is given. Nothing imports
 the module, and its theorems are evidence, not registered obligations.
