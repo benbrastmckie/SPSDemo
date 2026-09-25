@@ -1,7 +1,7 @@
 # tests/
 
-Fixture tests for the gate's tools and the two outside-Nix launchers. `../check.sh` does not run
-them; CI does. Each runner accepts `--help`, works in a temporary
+Fixture tests for the gate's tools and the three outside-Nix launchers. `../check.sh` does not
+run them; CI does. Each runner accepts `--help`, works in a temporary
 directory, and exits 0 when every case behaves as recorded, 1 otherwise, 2 on a usage error.
 
 Each `<dir>/run.sh`'s own header carries the full case list; this table names only what each
@@ -21,7 +21,8 @@ suite covers and points there for the rest.
 | `bump-pin/` | `../../nix/bump-aeneas-pin.sh`'s candidate walk and eligibility rules -- see `bump-pin/run.sh` | canned release/bundle JSON; no network |
 | `lean-toolchain-pin/` | `../../nix/lean-toolchain-pin.sh` -- see `lean-toolchain-pin/run.sh` | canned pin JSON and local files; no network |
 | `full-gate/` | `../full-gate.sh`'s fallback chain, consent rules and `--support-level` on all four systems -- see `full-gate/run.sh` | a stub `nix` and stub pin files |
-| `launcher-compat/` | `full-gate.sh`/`install.sh`/the two composite actions' scripts stay runnable under the host bash -- see `launcher-compat/run.sh`. The faithful macOS run is `ci-macos.yml`'s `launcher-compat` job, on request (see [../../docs/ci.md](../../docs/ci.md#macos-runs-on-request-only)) | none (a stub `nix` built at run time) |
+| `pre-push-hook/` | `../../.githooks/pre-push`'s exit-code mapping (INCOMPLETE/exit 3 -> proceed, everything else -> abort), the `SKIP_CORE_ONLY_HOOK` skip hatch, and the nix-absent failure path -- see `pre-push-hook/run.sh` | a stub `nix` that never runs a real `check.sh --core-only` |
+| `launcher-compat/` | `full-gate.sh`/`install.sh`/`.githooks/pre-push`/the two composite actions' scripts stay runnable under the host bash -- see `launcher-compat/run.sh`. The faithful macOS run is `ci-macos.yml`'s `launcher-compat` job, on request (see [../../docs/ci.md](../../docs/ci.md#macos-runs-on-request-only)) | none (a stub `nix` built at run time) |
 | `spdx/` | `scripts/check-spdx.sh` outside a git work tree -- see `spdx/run.sh` | small trees built at run time |
 | `ci-docs-coherence/` | `scripts/check-ci-docs-coherence.sh`'s twelve `docs/ci.md` <-> `.github/` structural invariants -- see `ci-docs-coherence/run.sh` | small `--root` trees (two workflows, one composite action, a minimal `docs/ci.md`) built at run time |
 | `certificate-identity/` | `scripts/certificate-identity.sh`'s digest and identity checks, including `cargo_version_normalized_sha256`'s version-scoping -- see `certificate-identity/run.sh` | a throwaway tree with its own copy of `certificate-identity.sh` and realistic `rust/Cargo.toml`/`rust/Cargo.lock` fixtures |
@@ -42,6 +43,7 @@ bash tests/launcher-compat/run.sh   needs bash >= 3.2 only; on a machine without
 bash tests/ladder/run.sh        needs the Lean toolchain in ../lean/lean-toolchain
 bash tests/layer/run.sh         needs bash >= 4.4, coreutils; no Lean toolchain, no build
 bash tests/owner-classification/run.sh   needs bash >= 4.4, coreutils; no Lean toolchain, no build
+bash tests/pre-push-hook/run.sh   needs bash >= 4.4; no Nix, no network, no real check.sh run
 bash tests/recheck-record/run.sh   needs bash >= 4.4, awk, coreutils; git (optional, for the golden case)
 bash tests/recheck-revs/run.sh  needs bash >= 4.4, jq, awk
 bash tests/spdx/run.sh          needs bash >= 4.4

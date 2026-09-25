@@ -188,6 +188,14 @@ jobs:
           set -euo pipefail
           nix develop .#build --command bash framed_channel/tests/full-gate/run.sh
 
+      # Stubs nix entirely (see the fixture's own header), so this needs only bash -- never a
+      # real Nix build, and never a real check.sh --core-only invocation.
+      - name: framed_channel/tests/pre-push-hook/run.sh
+        id: test_pre_push_hook
+        run: |
+          set -euo pipefail
+          nix develop .#build --command bash framed_channel/tests/pre-push-hook/run.sh
+
       # Drives nix/bump-aeneas-pin.sh entirely through its BUMP_PIN_TEST_* hooks (see the
       # fixture's own header), so this needs only jq and bash -- never a real gh/nix/lake/tar/git
       # call.

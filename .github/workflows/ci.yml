@@ -102,11 +102,15 @@ jobs:
         uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
 
       # shellcheck and actionlint both come from the lint dev shell (flake.nix's devShells.lint).
-      - name: shellcheck (every tracked *.sh file, derived at runtime)
+      # `.githooks/*` is a second, explicit pathspec (not a hardcoded file list -- git itself
+      # still derives the members at runtime) because the tracked pre-push hook is intentionally
+      # extensionless (git requires the exact hook name inside a core.hooksPath directory) and so
+      # does not match `*.sh`.
+      - name: "shellcheck (every tracked *.sh file plus .githooks/*, derived at runtime)"
         id: shellcheck
         run: |
           set -euo pipefail
-          nix develop .#lint --command bash -c "shellcheck -x -S warning \$(git ls-files '*.sh')"
+          nix develop .#lint --command bash -c "shellcheck -x -S warning \$(git ls-files '*.sh' '.githooks/*')"
 
       # No dev shell needed: install.sh's --help path runs before any prerequisite check.
       - name: install.sh --help (smoke run)

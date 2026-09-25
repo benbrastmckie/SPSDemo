@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # check-spdx.sh -- verify every hand-written source file carries the license header. READ-ONLY.
 #
-# Every .rs .lean .sh .css .js .mjs .ts file must carry `SPDX-License-Identifier: Apache-2.0` in its
+# Every .rs .lean .sh .css .js .mjs .ts file, plus every extensionless file under .githooks/
+# (git hooks cannot carry an extension), must carry `SPDX-License-Identifier: Apache-2.0` in its
 # first 3 lines, except the EXCLUDED paths below: the Aeneas-generated Lean files, which must keep
 # their generator banner instead. LICENSE and NOTICE must exist at the root.
 # Files come from `git ls-files --cached --others --exclude-standard` in a git work tree, otherwise
@@ -76,6 +77,9 @@ while IFS= read -r rel; do
   [ -n "$rel" ] || continue
   case "$rel" in
     *.rs|*.lean|*.sh|*.css|*.js|*.mjs|*.ts) ;;
+    # Extensionless git hooks (git requires the exact hook name inside a core.hooksPath
+    # directory, so none of them can carry an extension) still need the header checked.
+    .githooks/*) ;;
     *) continue ;;
   esac
   is_pruned "$rel" && continue

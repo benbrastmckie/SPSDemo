@@ -530,6 +530,16 @@ jobs:
           command -v nix > /dev/null 2>&1 || . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh 2>/dev/null || true
           nix develop .#build --command bash framed_channel/tests/full-gate/run.sh
 
+      # Stubs nix entirely (see the fixture's own header), so this needs only bash -- never a
+      # real Nix build, and never a real check.sh --core-only invocation.
+      - name: framed_channel/tests/pre-push-hook/run.sh
+        id: test_pre_push_hook
+        shell: wsl-bash {0}
+        run: |
+          set -euo pipefail
+          command -v nix > /dev/null 2>&1 || . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh 2>/dev/null || true
+          nix develop .#build --command bash framed_channel/tests/pre-push-hook/run.sh
+
       - name: framed_channel/tests/bump-pin/run.sh
         id: test_bump_pin
         shell: wsl-bash {0}

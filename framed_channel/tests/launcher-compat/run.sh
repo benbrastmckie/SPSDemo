@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
-# tests/launcher-compat/run.sh -- the two outside-Nix launchers (full-gate.sh, install.sh) and
-# everything they source must run under the host bash, which on macOS is /bin/bash 3.2.57. Every
-# other script in this repository runs inside a Nix dev shell and sees Nix's bash 5; these do not.
+# tests/launcher-compat/run.sh -- the three outside-Nix launchers (full-gate.sh, install.sh,
+# .githooks/pre-push) and everything they source must run under the host bash, which on macOS is
+# /bin/bash 3.2.57. Every other script in this repository runs inside a Nix dev shell and sees
+# Nix's bash 5; these do not -- .githooks/pre-push in particular runs at push time, before any
+# `nix develop` shell has been entered at all.
 #
 # Two passes:
-#   static   over the launcher set (full-gate.sh, install.sh, each file they `.`-source, and the
-#            composite actions' scripts -- lean-toolchain/verify.sh, mathlib-cache/get.sh -- which
-#            a macOS runner also runs under /bin/bash):
+#   static   over the launcher set (full-gate.sh, install.sh, .githooks/pre-push, each file they
+#            `.`-source, and the composite actions' scripts -- lean-toolchain/verify.sh,
+#            mathlib-cache/get.sh -- which a macOS runner also runs under /bin/bash):
 #            no bash-4-only construct (mapfile, associative arrays, namerefs, case-modification
 #            expansions, `|&`, `&>>`, coproc, `wait -n`, `${x@Q}`, `[[ -v`, negative subscripts,
 #            `;&`/`;;&`), no array expansion outside the 3.2-safe `${arr[@]+"${arr[@]}"}` form
@@ -52,6 +54,7 @@ ROOT="$(cd "$HERE/../../.." && pwd)"
 # any Nix shell.
 LAUNCHERS="full-gate.sh
 install.sh
+.githooks/pre-push
 nix/heavy-build-probe.sh
 nix/lean-toolchain-pin.sh
 nix/nix-version-floor.sh
