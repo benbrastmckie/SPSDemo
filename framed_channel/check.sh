@@ -1307,7 +1307,9 @@ check_record() {
     unaudited=$((unaudited + 1))
     return
   fi
-  if ! grep -q "'$decl'" "$records"; then
+  # -F: $decl is a literal declaration name, not a pattern -- a '.' in it would otherwise be an
+  # ERE any-character wildcard (the same class of hazard owner_of_supporting had; see above).
+  if ! grep -qF "'$decl'" "$records"; then
     echo "[FAIL] a manifest names $decl under $what, which has no record in axioms.txt"
     manifest_failures=$((manifest_failures + 1))
   fi
