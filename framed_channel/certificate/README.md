@@ -21,14 +21,14 @@ Generated files are never edited by hand.
 
 ## Manifests
 
-There is one manifest per certified unit: the four components (ring buffer, list-backed queue,
-varint codec, CRC-8) plus the composite channel. All five share one shape: `component`, `source`,
+There is one manifest per certified unit: the five components (ring buffer, list-backed queue,
+varint codec, CRC-8, byte stuffing) plus the composite channel. All six share one shape: `component`, `source`,
 `formal_model`, `bridge`, `implements` (or `composition` for the composite), `assumptions`,
 `guarantees`, `proofs`, `supporting`, `dependencies`, `toolchain`, `coverage`, `trust`,
 `not_claimed`, plus a `specification:` block naming the Challenge modules its `proofs:` are
 checked against and a `selection:` block pointing at the selection record in `approvals.yaml`.
 
-Adding a sixth manifest starts from `templates/manifest.yaml`: the fixed skeleton above, sized
+Adding a new manifest starts from `templates/manifest.yaml`: the fixed skeleton above, sized
 against what `shared.yaml` already factors out, with a header comment naming which existing
 manifest to read for each unit-specific-key block a new unit might not need. Copy it, never
 generate it; `../check.sh`'s manifest glob ignores the template itself (see
@@ -36,7 +36,7 @@ generate it; `../check.sh`'s manifest glob ignores the template itself (see
 
 `toolchain:` and `trust.G0_checker.independent_recheck:` each carry `shared: certificate/shared.yaml`.
 `shared.yaml` holds the content every manifest shares: the common toolchain pointers (Lean, the
-extractor, the Rust toolchain, the certificate identity, and, for the four units that share it,
+extractor, the Rust toolchain, the certificate identity, and, for the five units that share it,
 `mathlib`/`build`) and the independent-recheck entries (comparator, lean4lean, leanchecker,
 nanoda). Each manifest keeps only its own delta: `toolchain.extraction:` (the unit-specific tail
 of what was extracted), and, where a unit's `mathlib`/`build` differs from the shared value (today
@@ -111,7 +111,7 @@ carry no tag.
 | `[PROVED: compiler-trusting]` | sorry-free but uses `bv_decide` (a native helper axiom is present). Exactly one declaration: `FramedChannel.Crc8.crc8_step_linear` |
 | `[HAND-WRITTEN: model; bridged]` | a hand-written Lean model (`../lean/FramedChannel/Model/`, `Composition/`) in the shape Aeneas produces, connected to the extraction by the bridge proofs in `../aeneas/` |
 | `[HAND-WRITTEN]` | hand-written bridge infrastructure in `../aeneas/FramedChannelAeneas/Bridge/` that is not a model: library step specifications (`Std.lean`), the trait-record assumptions (`Queue/Traits.lean`), the generic queue simulation and its instance (`Queue/Defs.lean`, `Queue/Transport.lean`, `Queue/Instance.lean`), and the per-component abstraction and definitions modules (`<X>/Defs.lean`, `Channel/Abstraction.lean`) |
-| `[EXTRACTED: aeneas + bridge]` | connected to a Charon/Aeneas extraction of the Rust by kernel-checked refinement theorems (`../aeneas/FramedChannelAeneas/Bridge/`). The extractor (rustc MIR, Charon and Aeneas, Aeneas's library models and the crate-local models in `Extracted/FunsExternal.lean`) is trusted, not verified; the tag carries no revision so a pin bump never touches it -- the pinned revisions live in `../../nix/aeneas-pin.json` and `../flake.lock`, with the charon version that produced the committed extraction recorded in `candidates.txt`; no manifest restates them. All five units carry it |
+| `[EXTRACTED: aeneas + bridge]` | connected to a Charon/Aeneas extraction of the Rust by kernel-checked refinement theorems (`../aeneas/FramedChannelAeneas/Bridge/`). The extractor (rustc MIR, Charon and Aeneas, Aeneas's library models and the crate-local models in `Extracted/FunsExternal.lean`) is trusted, not verified; the tag carries no revision so a pin bump never touches it -- the pinned revisions live in `../../nix/aeneas-pin.json` and `../flake.lock`, with the charon version that produced the committed extraction recorded in `candidates.txt`; no manifest restates them. All six units carry it |
 | `[AUTHORED: nix-tested]` | Rust written here (manifests only); toolchain from PATH, or pinned by the root `rust-toolchain.toml` (read by `flake.nix`) when used; `../check.sh` runs `cargo fmt --check`, `cargo clippy -D warnings` and the differential tests, locally and in CI (`.github/workflows/ci.yml`, `verify.yml`) |
 | `[NOT CLAIMED]` | explicitly outside the certificate (the compiled binary, concurrency, corruption on the wire) |
 
@@ -195,7 +195,7 @@ definitions in the tree now.
 ## Hand-written files
 
 ### templates/manifest.yaml
-The copy-from skeleton for a sixth manifest (see `## Manifests` above for the pointer and
+The copy-from skeleton for a new manifest (see `## Manifests` above for the pointer and
 `../docs/adding-a-unit.md`'s manifest step). One directory below `certificate/`, so
 `../check.sh`'s manifest list (`printf '%s\n' "$CERT"/*.yaml`, non-recursive) never treats it as a
 real manifest and never validates its placeholder values.
