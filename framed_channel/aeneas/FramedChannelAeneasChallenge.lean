@@ -3,6 +3,7 @@ import FramedChannelAeneasChallenge.Queue
 import FramedChannelAeneasChallenge.RingBuffer
 import FramedChannelAeneasChallenge.VecQueue
 import FramedChannelAeneasChallenge.Varint
+import FramedChannelAeneasChallenge.Stuff
 import FramedChannelAeneasChallenge.Crc8
 import FramedChannelAeneasChallenge.Channel
 

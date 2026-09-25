@@ -15,6 +15,10 @@ import FramedChannelAeneas.Bridge.Varint.Defs
 import FramedChannelAeneas.Bridge.Varint.Encode
 import FramedChannelAeneas.Bridge.Varint.Decode
 import FramedChannelAeneas.Bridge.Varint.Instance
+import FramedChannelAeneas.Bridge.Stuff.Defs
+import FramedChannelAeneas.Bridge.Stuff.Stuff
+import FramedChannelAeneas.Bridge.Stuff.Unstuff
+import FramedChannelAeneas.Bridge.Stuff.Instance
 import FramedChannelAeneas.Bridge.Crc8.Defs
 import FramedChannelAeneas.Bridge.Crc8.Bitwise
 import FramedChannelAeneas.Bridge.Crc8.Table
@@ -65,6 +69,11 @@ trait, whose component-independent bridge (`QueueSim` and the transport theorems
 * The extracted varint codec (`Bridge/Varint/`): `encode_refines`, `decode_ok_refines`,
   `decode_complete`, `roundtrip_extracted` and `instCodecLaws_extracted` as `E2`, and the error
   agreement `decode_err_iff` as `E1`.
+* The extracted HDLC byte-stuffing codec (`Bridge/Stuff/`): `stuff_refines`,
+  `encode_frame_refines`, `decode_ok_refines`, `decode_complete`, `roundtrip_extracted` and
+  `instCodecLaws_extracted` as `E2`, and the error agreement `decode_err_iff` as `E1`. Its
+  `decode_err_iff` is an exact `iff`, where the varint codec's is an implication in one direction
+  only over a stricter Rust rejection.
 * The extracted CRC-8 (`Bridge/Crc8/`): `crc8_refines`, `crc8_table_refines`, the extracted-level
   equivalence `crc8_table_eq_extracted` and the two `ChecksumLaws` instances as `E2`, and
   `table_agrees` as `E1`.
@@ -87,7 +96,17 @@ library-gap step specifications of `Bridge/Std.lean`, the lowering read-through 
 `Bridge/Queue/Instance.lean`, the carrier and functionality lemmas of each queue instance, the loop
 lemmas and their invariants (`encode_loop_refines`, `decode_loop_refines`, `decode_refines`,
 `inner_loop_refines`, `outer_loop_refines`, `table_loop_refines`), the `Nat` and scalar arithmetic
-lemmas, and the digest/step identification lemmas of `Bridge/Crc8/Instance.lean`. The CRC-8
+lemmas, and the digest/step identification lemmas of `Bridge/Crc8/Instance.lean`. In the
+byte-stuffing bridge the supporting set is the two loop lemmas and their invariants
+(`stuff_loop_refines`/`StuffInv`, `unstuff_loop_refines`/`UnstuffInv`/`UnstuffPost`),
+`unstuff_refines` (covered by the three decode rows derived from it), the extracted-constant value
+lemmas (`MARKER_val`, `ESC_val`, `marker_eq`, `esc_eq`, `marker_xor`, `esc_xor`), the abstraction
+lemmas (`bytesOf_length`, `bytesOf_append`, `bytesOf_drop_cons`, `bytesOf_push_reverse`,
+`bytesOf_sliceOfBytes`, `sliceOfBytes_length`), the slice-index helpers (`getElem?_some_lt`,
+`eq_getElem_of_getElem?`), the model-side `unstuff` equation lemmas proved bridge-locally
+(`unstuff_nil`, `unstuff_marker`, `unstuff_plain`, `unstuff_esc_last`, `unstuff_esc_marker`,
+`unstuff_esc_esc`, `unstuff_esc_bad`), and `stuff_out_length`, `encode_bytes_lt` and
+`extEncode_eq`. The CRC-8
 `inner_refines` is kept supporting too: it is the `@[step]` specification `crc8_refines` is
 walked with, and `crc8_refines`'s row covers it. `decode_refines` is covered by the three decode
 rows derived from it. In the channel bridge, the abstraction (`vecOfFrame`, `ofFrame_val`,
@@ -190,6 +209,21 @@ def items : List CertifiedItem :=
       "the extracted decode inverts the extracted encode on every u32, no bound hypothesis",
     register% varint.instCodecLaws_extracted ItemType.E2 2 true 3731857118
       "CodecLaws on the extracted LEB128 codec over Std.U32",
+    -- The extracted HDLC byte-stuffing codec (E2, and error agreement as E1)
+    register% stuff.stuff_refines          ItemType.E2 2 true 2814710957
+      "the extracted stuff appends exactly the model's stuffed payload",
+    register% stuff.encode_frame_refines   ItemType.E2 2 true 1328481543
+      "the extracted encode_frame appends the stuffed payload and the terminating flag",
+    register% stuff.decode_ok_refines      ItemType.E2 2 true 3002366595
+      "an extracted unstuff success is a model decode success with the same residual",
+    register% stuff.decode_complete        ItemType.E2 2 true 1976159975
+      "a model decode success is an extracted unstuff success",
+    register% stuff.decode_err_iff         ItemType.E1 1 true 803059870
+      "extracted unstuff errs exactly when the model fails: an exact agreement",
+    register% stuff.roundtrip_extracted    ItemType.E2 2 true 3256256942
+      "the extracted unstuff inverts the extracted encode_frame, consuming every byte",
+    register% stuff.instCodecLaws_extracted ItemType.E2 2 true 3340467780
+      "CodecLaws on the extracted HDLC stuffing codec over byte lists",
     -- The extracted CRC-8 (E2, and table agreement as E1)
     register% crc8.table_agrees            ItemType.E1 1 true 3543992442
       "the extracted TABLE is the model's table",
@@ -268,11 +302,11 @@ def allBank : List Item := toBank allItems
 #print axioms allItems
 #print axioms allBank
 
-/-- Sixty-six bridge rows. -/
-example : bank.length = 66 := by decide
+/-- Seventy-three bridge rows. -/
+example : bank.length = 73 := by decide
 
-/-- One hundred and five rows across both packages. -/
-example : allBank.length = 105 := by decide
+/-- One hundred and twelve rows across both packages. -/
+example : allBank.length = 112 := by decide
 
 -- At this many rows, deciding the witness strings needs more than the default recursion depth.
 set_option maxRecDepth 4096 in
@@ -283,9 +317,9 @@ example : allBank.all Item.hasWitness = true := by decide
 example : noOpenScored allBank := noOpenScored_all allBank
 
 /-- The kernel-scored total over both packages. -/
-example : totalScore allBank = 274 := by decide
+example : totalScore allBank = 294 := by decide
 
 /-- The achievable total over both packages, counting the one compiler-trusting core row. -/
-example : totalMax allBank = 276 := by decide
+example : totalMax allBank = 296 := by decide
 
 end FramedChannel.Bridge
