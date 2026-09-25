@@ -1,11 +1,11 @@
 # aeneas/
 
 The Lake package that connects the hand-written models in `../lean` to a real Charon/Aeneas
-extraction of the whole `../rust` crate. All five units are extracted, axiom-free, and bridged to
-their models: the ring buffer, the list-backed `VecQueue`, the varint codec and the CRC-8, with the
-specification's laws instantiated directly on their extracted carriers, and the channel, whose
-composition theorems are proved once over any lawful extracted queue record and instantiated at
-both queues. The package requires the Aeneas Lean library at the currently pinned revision (see
+extraction of the whole `../rust` crate. All six units are extracted, axiom-free, and bridged to
+their models: the ring buffer, the list-backed `VecQueue`, the varint codec, the CRC-8 and the
+HDLC byte-stuffing codec, with the specification's laws instantiated directly on their extracted
+carriers, and the channel, whose composition theorems are proved once over any lawful extracted
+queue record and instantiated at both queues. The package requires the Aeneas Lean library at the currently pinned revision (see
 `../../nix/aeneas-pin.json`'s `rev`; `aeneas_rev_coherence` checks it against `flake.lock` and
 this package's own `lake-manifest.json`) and the core package `../lean` by path, on the same
 `lean-toolchain`, so Lake reuses `../lean/.lake/build`.

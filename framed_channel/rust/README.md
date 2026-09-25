@@ -76,7 +76,7 @@ the extraction module is `queue`, not `vec_queue`, because `src/queue.rs` holds 
 ## Modules
 
 ### src/lib.rs
-`#![forbid(unsafe_code)]`, the five modules, and the re-exports `Channel`, `DeliverFail`, `Frame`,
+`#![forbid(unsafe_code)]`, the six modules, and the re-exports `Channel`, `DeliverFail`, `Frame`,
 `SendFail`, `MARKER`, `BoundedQueue`, `VecQueue`, `Full`, `RingBuffer`.
 
 ### src/ring_buffer.rs

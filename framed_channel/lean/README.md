@@ -25,7 +25,7 @@ package builds no executable: the differential vectors come from evaluating the 
 
 ## The layout rule
 
-Both Lake packages in this example follow one rule, and the sixth component should be copied from
+Both Lake packages in this example follow one rule, and each new component should be copied from
 the rule rather than from whichever file it happens to look at first.
 
 **A unit layer holds one directory per unit: `<Layer>/<Unit>/`.** `Model/` and `Composition/`
@@ -231,7 +231,7 @@ toolchain-bound change detector.
 
 ## Relation to extraction
 
-All five certified units are connected to the Charon/Aeneas extraction of `../rust` by the bridge proofs in
+Every certified unit is connected to the Charon/Aeneas extraction of `../rust` by the bridge proofs in
 `../aeneas/`, which also instantiate the laws directly on the extracted carriers. How each
 difference between an extraction and these models (vectors, bounded integers, the `Result` monad,
 loops, trait dispatch) is discharged is described in `../aeneas/README.md`.
