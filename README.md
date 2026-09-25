@@ -47,7 +47,7 @@ where a certificate records the result.
 └── NOTICE                 third-party notices
 ```
 
-- [framed_channel/README.md](framed_channel/README.md) - the example: five certified
+- [framed_channel/README.md](framed_channel/README.md) - the example: the certified
   units, the extraction and its bridge proofs, registries, certificates and the recheck.
 - [docs/consuming.md](docs/consuming.md) - what is here, what you can run, and what should not be
   treated as fixed.
