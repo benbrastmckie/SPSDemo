@@ -118,13 +118,7 @@ jobs:
       # by design -- this is not the verification claim; any other exit code is a defect.
       - name: "framed_channel/check.sh --committed-extraction (no Nix)"
         id: committed_extraction
-        run: |
-          set -euo pipefail
-          echo "::group::bash framed_channel/check.sh --committed-extraction"
-          rc=0
-          bash framed_channel/check.sh --committed-extraction || rc=$?
-          if [ "$rc" -ne 3 ]; then
-            echo "::error::check.sh --committed-extraction exited $rc; it ends INCOMPLETE (exit 3) by design, and any other exit code is a defect"
-            exit 1
-          fi
-          echo "::endgroup::"
+        uses: ./.github/actions/precheck-incomplete
+        with:
+          mode: committed-extraction
+          use-nix: "false"

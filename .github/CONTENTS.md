@@ -4,7 +4,7 @@
 > repository's front page in preference to the root `README.md`, so a README here silently
 > replaces the project's own landing page. Do not rename this file back.
 
-What GitHub Actions itself reads: twelve workflows, four composite actions they share, and
+What GitHub Actions itself reads: twelve workflows, five composite actions they share, and
 Dependabot's configuration. This is a directory map, not a second copy of what each workflow
 does or certifies -- see [../docs/ci.md](../docs/ci.md) for the full trigger, job and
 what-green-certifies detail this table only points at.
@@ -34,6 +34,7 @@ what-green-certifies detail this table only points at.
 | `actions/mathlib-cache/action.yml` (`get.sh`) | Fetch Mathlib's oleans through `lake exe cache get`, with a from-source fallback on a miss |
 | `actions/lake-bridge/action.yml` | Restore and save `framed_channel/{lean,aeneas}/.lake`, minus Mathlib's own build directory; see [docs/ci.md](../docs/ci.md#cache-strategy) |
 | `actions/substituter-probe/action.yml` (`probe.sh`) | Classify every store path a resolved shell would realize, failing loudly on an unexpected from-source charon/aeneas build |
+| `actions/precheck-incomplete/action.yml` (`run.sh`) | Run `check.sh` in a precheck mode (`--core-only`/`--committed-extraction`) and assert it exits exactly 3 (INCOMPLETE by design) |
 
 See [docs/ci.md](../docs/ci.md#cache-strategy) for the caching rationale shared across every
 caller.

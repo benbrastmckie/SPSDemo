@@ -417,6 +417,12 @@ jobs:
           command -v nix > /dev/null 2>&1 || . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh 2>/dev/null || true
           nix develop .#build --command bash -c 'cd framed_channel/rust && cargo test'
 
+      # Deliberately NOT `uses: ./.github/actions/precheck-incomplete` (see this file's own D1,
+      # reason 2, and the action's own header): that action's step hardcodes `shell: bash`, which
+      # on a Windows runner resolves to the host's Git Bash, not WSL2, and redirecting a shared
+      # composite action's shell into WSL2 is exactly the untested $GITHUB_ACTION_PATH-under-WSL2
+      # path-translation hazard D1 already declined to risk for this exploratory,
+      # workflow_dispatch-only leg. Kept as its own hand-maintained copy instead.
       - name: check.sh --core-only (core pre-check; not the verification gate, see verify.yml)
         id: core_precheck
         shell: wsl-bash {0}

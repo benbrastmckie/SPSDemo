@@ -103,16 +103,10 @@ jobs:
 
       - name: check.sh --core-only (core pre-check; not the verification gate, see verify.yml)
         id: core_precheck
-        run: |
-          set -euo pipefail
-          echo "::group::nix develop .#build --command bash framed_channel/check.sh --core-only"
-          rc=0
-          nix develop .#build --command bash framed_channel/check.sh --core-only || rc=$?
-          if [ "$rc" -ne 3 ]; then
-            echo "::error::check.sh --core-only exited $rc; the pre-check ends INCOMPLETE (exit 3) by design, and an exit 0 here would mean check.sh claimed PASS without the bridge"
-            exit 1
-          fi
-          echo "::endgroup::"
+        uses: ./.github/actions/precheck-incomplete
+        with:
+          mode: core-only
+          shell-attr: build
 
       - name: framed_channel/tests/approvals/run.sh
         id: test_approvals

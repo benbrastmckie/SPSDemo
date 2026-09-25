@@ -9,7 +9,8 @@
 # Two passes:
 #   static   over the launcher set (full-gate.sh, install.sh, .githooks/pre-push, each file they
 #            `.`-source, and the composite actions' scripts -- lean-toolchain/verify.sh,
-#            mathlib-cache/get.sh -- which a macOS runner also runs under /bin/bash):
+#            mathlib-cache/get.sh, precheck-incomplete/run.sh -- which a macOS runner also runs
+#            under /bin/bash):
 #            no bash-4-only construct (mapfile, associative arrays, namerefs, case-modification
 #            expansions, `|&`, `&>>`, coproc, `wait -n`, `${x@Q}`, `[[ -v`, negative subscripts,
 #            `;&`/`;;&`), no array expansion outside the 3.2-safe `${arr[@]+"${arr[@]}"}` form
@@ -60,6 +61,7 @@ nix/lean-toolchain-pin.sh
 nix/nix-version-floor.sh
 .github/actions/lean-toolchain/verify.sh
 .github/actions/mathlib-cache/get.sh
+.github/actions/precheck-incomplete/run.sh
 framed_channel/tests/launcher-compat/run.sh"
 
 failures=0

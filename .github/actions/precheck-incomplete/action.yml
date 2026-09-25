@@ -1,0 +1,69 @@
+# precheck-incomplete -- the one place that runs framed_channel/check.sh in a precheck mode
+# (--core-only or --committed-extraction) and asserts it exits exactly 3 (INCOMPLETE by design).
+# Used by build-and-test.yml's `core_precheck` step (mode: core-only, wrapped in
+# `nix develop .#build`), fresh-clone-canary.yml's `committed_extraction` step (mode:
+# committed-extraction, wrapped in a plain `nix develop`, no attribute), and
+# setup-without-nix.yml's `committed_extraction` step (mode: committed-extraction, use-nix: false
+# -- the one leg with no Nix at all).
+#
+# NOT used by ci-windows.yml's own `core_precheck` step: that workflow's header (architecture
+# decision D1, reason 2) already documents that the three pre-existing shared composite actions
+# under .github/actions/ hardcode `shell: bash`, which resolves to the Windows host's Git Bash,
+# not WSL2, on a Windows runner, and that giving a shared action a shell input to redirect it into
+# WSL2 was deliberately deferred rather than risked for that one exploratory, workflow_dispatch-
+# only leg. This action inherits the same constraint (its own steps also hardcode `shell: bash`),
+# and $GITHUB_ACTION_PATH's translation into a WSL2-side `run:` step is exactly the class of
+# untested Windows/WSL2 path-translation hazard that workflow's own header separately documents
+# at length (its `$GITHUB_OUTPUT`/`$GITHUB_ENV`/`$GITHUB_STEP_SUMMARY` discussion) -- so
+# ci-windows.yml's core_precheck step is deliberately left as its own hand-maintained copy, not
+# rewired here. See that file's own D1 comment for the full rationale.
+#
+# Deliberately does NOT unify its callers' full command sets otherwise: each caller keeps its own
+# preceding steps and its own step `id`/`name`, and this action owns only the "run the precheck,
+# assert exit 3" contract each of its three callers previously hand-maintained as a
+# near-identical copy. `nix` being resolvable on PATH (when use-nix is 'true') is the caller's own
+# precondition.
+#
+# This script runs on a macOS runner too (fresh-clone-canary.yml's darwin legs), outside any Nix
+# dev shell -- so it is written bash 3.2-safe and is part of
+# framed_channel/tests/launcher-compat/run.sh's scanned LAUNCHERS set, the same reason full-gate.sh
+# and install.sh are there.
+#
+# See framed_channel/check.sh's own header for what --core-only and --committed-extraction each
+# check, and docs/development.md's "fast inner loop" section for why they are not interchangeable
+# for the ownership-classification defect class.
+
+name: precheck-incomplete
+description: >-
+  Run check.sh in a precheck mode (--core-only or --committed-extraction) and fail loudly unless
+  it exits exactly 3 (INCOMPLETE by design). Requires a checked-out repository, and, unless
+  use-nix is 'false', an installed Nix resolvable on PATH (or via the Nix daemon profile script).
+
+inputs:
+  mode:
+    description: "Precheck mode: 'core-only' or 'committed-extraction'"
+    required: true
+  shell-attr:
+    description: >-
+      Dev shell attribute for `nix develop .#<attr>` (empty: plain `nix develop`, no attribute,
+      which is what fresh-clone-canary.yml needs). Ignored when use-nix is 'false'.
+    required: false
+    default: ""
+  use-nix:
+    description: >-
+      'false' runs check.sh directly with plain bash, with no `nix develop` wrapper at all (the
+      no-Nix leg, setup-without-nix.yml). Default 'true' wraps the call in `nix develop`.
+    required: false
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - name: "check.sh --${{ inputs.mode }} (asserts INCOMPLETE, exit 3)"
+      id: precheck
+      shell: bash
+      env:
+        PRECHECK_MODE: ${{ inputs.mode }}
+        PRECHECK_SHELL_ATTR: ${{ inputs.shell-attr }}
+        PRECHECK_USE_NIX: ${{ inputs.use-nix }}
+      run: bash "$GITHUB_ACTION_PATH/run.sh"

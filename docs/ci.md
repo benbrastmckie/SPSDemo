@@ -1,11 +1,12 @@
 # Continuous integration
 
-Twelve workflows under `.github/workflows/` build, lint, verify and maintain this repository, with four
+Twelve workflows under `.github/workflows/` build, lint, verify and maintain this repository, with five
 composite actions under `.github/actions/` that they share:
 [`lean-toolchain`](../.github/actions/lean-toolchain/action.yml),
 [`mathlib-cache`](../.github/actions/mathlib-cache/action.yml),
-[`lake-bridge`](../.github/actions/lake-bridge/action.yml) and
-[`substituter-probe`](../.github/actions/substituter-probe/action.yml). This page states what each one runs,
+[`lake-bridge`](../.github/actions/lake-bridge/action.yml),
+[`substituter-probe`](../.github/actions/substituter-probe/action.yml) and
+[`precheck-incomplete`](../.github/actions/precheck-incomplete/action.yml). This page states what each one runs,
 what its green result certifies, and the trigger, cache-budget, cost, timeout and coverage-gap
 rationale behind them; each workflow file itself carries a header (often long, restating the same
 rationale inline) plus per-step comments, not this level of cross-file synthesis. See

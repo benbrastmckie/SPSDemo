@@ -150,16 +150,9 @@ jobs:
       # PASS without charon/aeneas), mirroring build-and-test.yml's own --core-only assertion.
       - name: "framed_channel/check.sh --committed-extraction (nix develop, the light default shell)"
         id: committed_extraction
-        run: |
-          set -euo pipefail
-          echo "::group::nix develop --command bash framed_channel/check.sh --committed-extraction"
-          rc=0
-          nix develop --command bash framed_channel/check.sh --committed-extraction || rc=$?
-          if [ "$rc" -ne 3 ]; then
-            echo "::error::check.sh --committed-extraction exited $rc; it ends INCOMPLETE (exit 3) by design, and any other exit code is a defect"
-            exit 1
-          fi
-          echo "::endgroup::"
+        uses: ./.github/actions/precheck-incomplete
+        with:
+          mode: committed-extraction
 
       # Resolves this system's support level fresh, every run -- the single machine-readable
       # source of truth every step below consumes (never a hardcoded per-system branch). Its
