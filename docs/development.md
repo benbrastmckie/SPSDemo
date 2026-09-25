@@ -32,6 +32,38 @@ the fast pre-checks for the stages that do not need to regenerate the extraction
 lint, license headers, and -- for `--committed-extraction` -- the proof stages themselves). See
 `bash framed_channel/check.sh --help` for the full stage list and every flag.
 
+**The two are NOT interchangeable for one specific defect class.** `--core-only` is the only mode
+that leaves the bridge package out entirely (`bridge_ran=false`, `ran_packages=(core)`);
+`--committed-extraction` still builds and audits the bridge package (`bridge_ran=true`), just
+without regenerating or re-verifying the extraction it is built against. That difference matters
+because `owner_of_proof`/`owner_of_supporting`'s bridge-vs-core classification and
+`check_record`'s `unaudited` exemption (see `check.sh`'s manifest cross-check stage) are reached
+in every mode, but their bridge-absent branch -- the one a bridge-owned name's classification
+defect can hide in -- fires only when `ran_packages` does not include `bridge`, i.e. only under
+`--core-only`. A defect confined to that branch passes both `--committed-extraction` and the full
+gate locally and is caught only where something actually runs `--core-only`: see the pre-push hook
+below, and every CI build leg. Run `--core-only` at least once before relying on
+`--committed-extraction` alone for a change that touches ownership classification, the manifest,
+or `check_record`.
+
+## Pre-push hook: `check.sh --core-only` before every push
+
+`install.sh` (the step every contributor already runs -- see [installation.md](installation.md))
+activates a tracked git hook, `.githooks/pre-push`, via `git config core.hooksPath .githooks`. It
+runs `check.sh --core-only` before every `git push` and treats the pre-check's own by-design
+INCOMPLETE (exit 3) as the pass condition; any other exit -- including an unexpected 0, which
+would mean `check.sh` claimed PASS without the bridge -- aborts the push. This closes exactly the
+coverage gap the previous paragraph describes: `full-gate.sh` never runs `--core-only` (see its
+own header), so without this hook a `--core-only`-only defect was invisible until a CI build leg
+caught it after the push.
+
+For a deliberate work-in-progress push, skip the hook once with `SKIP_CORE_ONLY_HOOK=1 git push
+...`. Prefer this over `git push --no-verify`, which would also skip every other hook this
+repository ever adds. If `core.hooksPath` is already set to something else in your checkout,
+`install.sh` leaves it alone and prints the exact command to opt in manually
+(`git config core.hooksPath .githooks`); see `.githooks/pre-push`'s own header for the hook's
+full contract, including its `nix`-resolution fallback.
+
 ## Running the full gate locally (opt-in)
 
 ```bash

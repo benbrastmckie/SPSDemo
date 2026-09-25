@@ -69,8 +69,9 @@ bash install.sh
 nix develop
 ```
 
-`install.sh` pre-fetches the Lean toolchain and the Rust dependencies, and
-never installs nix itself; the dev shell holds the lint and build toolchains only. See
+`install.sh` pre-fetches the Lean toolchain and the Rust dependencies, activates a tracked
+pre-push hook that runs `check.sh --core-only` before every push, and never installs nix itself;
+the dev shell holds the lint and build toolchains only. See
 [docs/installation.md](docs/installation.md) for step-by-step instructions, the `install.sh`
 flags and every dev shell.
 

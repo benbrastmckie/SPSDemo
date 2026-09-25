@@ -39,9 +39,12 @@ bash install.sh
 nix develop
 ```
 
-`install.sh` checks the prerequisites above, then enters the light build shell and warms its
-caches: it builds the Lean package (which makes elan download the pinned Lean toolchain) and
-fetches the Rust crate's dependencies.
+`install.sh` checks the prerequisites above, activates a tracked pre-push hook
+(`git config core.hooksPath .githooks`; see [development.md](development.md#pre-push-hook-checksh---core-only-before-every-push)
+for what it runs and how to skip it for a deliberate WIP push -- skipped, with a notice, if
+`core.hooksPath` is already set to something else, or if run outside a git work tree), then enters
+the light build shell and warms its caches: it builds the Lean package (which makes elan download
+the pinned Lean toolchain) and fetches the Rust crate's dependencies.
 The script is idempotent and safe to re-run. It exits 0 when ready, 1 when a warm-up
 step failed, and 2 on a usage error, an unsupported platform or a missing prerequisite.
 
