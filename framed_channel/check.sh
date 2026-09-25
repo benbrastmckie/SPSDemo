@@ -1277,18 +1277,29 @@ fail_each manifest_failures '%s is registered, but no manifest lists it under pr
 fail_each manifest_failures '%s is listed under both proofs: and supporting:' \
   <<< "$(LC_ALL=C comm -12 "$work/proofs" "$work/supporting")"
 
+# >>> owner-rules -- tests/owner-classification/run.sh extracts this block verbatim, between
+# these two markers, so the self-test exercises the gate's own classification functions rather
+# than a copy. Keep the markers, and keep everything between them free of state the stage has not
+# set up yet ($work/registered.bridge and $EX are both required by the callers below).
+#
 # owner_of_proof NAME / owner_of_supporting NAME: the package that owns a name, by source.
 owner_of_proof() {
   if grep -qxF "$1" "$work/registered.bridge"; then echo bridge; else echo core; fi
 }
 owner_of_supporting() {
-  if grep -rqE --include='*.lean' "^[[:space:]]*#print axioms $(printf '%s' "$1" | sed 's/\./\\./g')[[:space:]]*$" \
+  # A supporting: name is spliced into an ERE pattern below, so every ERE metacharacter in it
+  # must be escaped -- not just '.'. An under-escaped name (e.g. one ending in '?') is read as a
+  # quantifier, never matches its own '#print axioms' line, and is misclassified as core-owned.
+  local esc
+  esc="$(printf '%s' "$1" | sed 's/[.[\*^$()+?{|]/\\&/g')"
+  if grep -rqE --include='*.lean' "^[[:space:]]*#print axioms ${esc}[[:space:]]*$" \
        "$EX/aeneas/FramedChannelAeneas"; then
     echo bridge
   else
     echo core
   fi
 }
+# <<< owner-rules
 
 check_record() {
   local decl="$1" owner="$2" what="$3"
