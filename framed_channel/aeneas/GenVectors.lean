@@ -212,6 +212,50 @@ def decodeFields (bs : List Nat) : List String :=
 
 def asciiBytes (s : String) : List Nat := s.toList.map Char.toNat
 
+/-! ## Stuff: HDLC byte stuffing
+
+The payloads deliberately include both reserved bytes, so the escape branches are exercised, and the
+`unstuff` inputs cover all three outcomes: a well-formed frame with and without residual bytes, a
+wire with no terminating flag (`err truncated`), a wire ending inside an escape (`err truncated`
+again, by the second of the extracted code's two truncation exits) and a bad escape
+(`err badescape`). -/
+
+/-- Payloads for the encode side: empty, plain, each reserved byte alone, both together, and a
+payload that is nothing but reserved bytes (the worst case for the length bound). -/
+def stuffPayloads : List (List Nat) :=
+  [ [], [1, 2, 3], [0x7E], [0x7D], [1, 0x7E, 2, 0x7D, 3], [0x7E, 0x7D, 0x7E],
+    asciiBytes "framed_channel" ]
+
+/-- The extracted `stuff` and `encode_frame` of a payload, into an empty vector. -/
+def stuffRecs (ns : List Nat) : List String :=
+  [ mkRec (mkLhs "stuff.stuff" (natsToStr ns))
+      (fields (stuff.stuff (sliceOf ns) (alloc.vec.Vec.new Std.U8)) fun v => [u8sToStr v.val])
+  , mkRec (mkLhs "stuff.encode_frame" (natsToStr ns))
+      (fields (stuff.encode_frame (sliceOf ns) (alloc.vec.Vec.new Std.U8)) fun v =>
+        [u8sToStr v.val]) ]
+
+/-- Wires for the decode side. The first group is `encode_frame` output, some with residual bytes
+after the flag; then the refusals. -/
+def stuffWires : List (List Nat) :=
+  [ [0x7E]
+  , [1, 2, 3, 0x7E]
+  , [1, 0x7D, 0x5E, 2, 0x7D, 0x5D, 3, 0x7E]
+  , [1, 2, 0x7E, 9, 9]
+  , [1, 2, 3]
+  , []
+  , [1, 0x7D]
+  , [1, 0x7D, 0x41, 0x7E]
+  , [0x7D, 0x00, 0x7E] ]
+
+/-- The extracted `unstuff` of a wire: `ok <payload> <consumed>`, `err truncated` or
+`err badescape`. -/
+def unstuffFields (bs : List Nat) : List String :=
+  fields (stuff.unstuff (sliceOf bs)) fun r =>
+    match r with
+    | .Ok (v, k) => [s!"ok {u8sToStr v.val} {k.val}"]
+    | .Err .Truncated => ["err truncated"]
+    | .Err .BadEscape => ["err badescape"]
+
 def crc8Vectors : List (List Nat) :=
   [ [], asciiBytes "a", asciiBytes "123456789", [0, 0, 0], [255, 255, 255, 255],
     asciiBytes "framed_channel" ]
@@ -409,6 +453,14 @@ def varintSection : List String :=
        ] ++ varintOutOfDomainInputs.map (fun bs =>
         mkRec (mkLhs "varint.decode.out_of_domain" (natsToStr bs)) (decodeFields bs))
 
+def stuffSection : List String :=
+  [ "# ---- Stuff: the extracted stuff / encode_frame / unstuff ---------------------------"
+  , "# stuff records carry the stuffed payload; encode_frame records add the terminating flag."
+  , "# unstuff records carry the Rust result: `ok <payload> <consumed>`, `err truncated` or"
+  , "#   `err badescape`. The consumed count includes the terminating flag."
+  ] ++ stuffPayloads.flatMap stuffRecs
+    ++ stuffWires.map (fun bs => mkRec (mkLhs "stuff.unstuff" (natsToStr bs)) (unstuffFields bs))
+
 def crc8Section : List String :=
   [ "# ---- Crc8: the extracted crc8 (bits) and crc8_table (table) -----------------------"
   ] ++ crc8Vectors.flatMap crc8Recs
@@ -432,7 +484,7 @@ def channelSection : List String :=
     ++ chTraces "channel.vecqueue" vqFrameRecord (channel.Channel.with_queue vqFrameRecord)
 
 def output (rev : String) : List String :=
-  header rev ++ queueSection ++ varintSection ++ crc8Section ++ channelSection
+  header rev ++ queueSection ++ varintSection ++ stuffSection ++ crc8Section ++ channelSection
 
 end GenVectors
 

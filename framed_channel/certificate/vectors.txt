@@ -187,6 +187,33 @@ varint.decode 128 128 128 128 128 1 => err overlong
 #   2 ^ 32 here, the divergence the bridge states as decode_err_iff.
 varint.decode.out_of_domain 128 128 128 128 16 => err overlong
 varint.decode.out_of_domain 128 128 128 128 127 => err overlong
+# ---- Stuff: the extracted stuff / encode_frame / unstuff ---------------------------
+# stuff records carry the stuffed payload; encode_frame records add the terminating flag.
+# unstuff records carry the Rust result: `ok <payload> <consumed>`, `err truncated` or
+#   `err badescape`. The consumed count includes the terminating flag.
+stuff.stuff =>
+stuff.encode_frame => 126
+stuff.stuff 1 2 3 => 1 2 3
+stuff.encode_frame 1 2 3 => 1 2 3 126
+stuff.stuff 126 => 125 94
+stuff.encode_frame 126 => 125 94 126
+stuff.stuff 125 => 125 93
+stuff.encode_frame 125 => 125 93 126
+stuff.stuff 1 126 2 125 3 => 1 125 94 2 125 93 3
+stuff.encode_frame 1 126 2 125 3 => 1 125 94 2 125 93 3 126
+stuff.stuff 126 125 126 => 125 94 125 93 125 94
+stuff.encode_frame 126 125 126 => 125 94 125 93 125 94 126
+stuff.stuff 102 114 97 109 101 100 95 99 104 97 110 110 101 108 => 102 114 97 109 101 100 95 99 104 97 110 110 101 108
+stuff.encode_frame 102 114 97 109 101 100 95 99 104 97 110 110 101 108 => 102 114 97 109 101 100 95 99 104 97 110 110 101 108 126
+stuff.unstuff 126 => ok  1
+stuff.unstuff 1 2 3 126 => ok 1 2 3 4
+stuff.unstuff 1 125 94 2 125 93 3 126 => ok 1 126 2 125 3 8
+stuff.unstuff 1 2 126 9 9 => ok 1 2 3
+stuff.unstuff 1 2 3 => err truncated
+stuff.unstuff => err truncated
+stuff.unstuff 1 125 => err truncated
+stuff.unstuff 1 125 65 126 => err badescape
+stuff.unstuff 125 0 126 => err badescape
 # ---- Crc8: the extracted crc8 (bits) and crc8_table (table) -----------------------
 crc8.bits => 0
 crc8.table => 0

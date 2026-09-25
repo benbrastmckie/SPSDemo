@@ -9,6 +9,7 @@ use framed_channel::channel::{encode_frame, parse_frame, DeliverFail, SendFail};
 use framed_channel::crc8::{crc8, crc8_table};
 use framed_channel::queue::BoundedQueue;
 use framed_channel::ring_buffer::{Full, RingBuffer};
+use framed_channel::stuff::{encode_frame as stuff_encode_frame, stuff, unstuff, UnstuffError};
 use framed_channel::varint::{decode_u32, encode_u32, VarintError};
 use framed_channel::{Channel, Frame, VecQueue, MARKER};
 use std::collections::VecDeque;
@@ -874,6 +875,67 @@ fn count_records(records: &[Record], op: &str, status: &str, detail: &str) -> us
 
 /// A structural guard that the committed artifact cannot silently shrink. Every comparison above
 /// iterates the records it finds, so a vector file that lost a whole operation -- or one branch
+/// The `unstuff` outcome a vector record states, read back as the Rust `Result`.
+fn expected_unstuff(r: &Record) -> Result<(Vec<u8>, usize), UnstuffError> {
+    match r.status(0) {
+        "ok" => {
+            let rest = r.rest(0);
+            let used = match rest.last() {
+                Some(u) => {
+                    u.parse::<usize>().expect("vectors.txt: consumed count does not fit usize")
+                }
+                None => panic!("vectors.txt: an ok unstuff record with no consumed count"),
+            };
+            let payload = match rest.get(..rest.len() - 1) {
+                Some(p) => u8s(p),
+                None => panic!("vectors.txt: an ok unstuff record with no payload field"),
+            };
+            Ok((payload, used))
+        }
+        "err" => match r.rest(0).first() {
+            Some(v) if v == "truncated" => Err(UnstuffError::Truncated),
+            Some(v) if v == "badescape" => Err(UnstuffError::BadEscape),
+            _ => panic!("vectors.txt: an unstuff error record with no known variant"),
+        },
+        other => panic!("vectors.txt: unexpected unstuff result {other}"),
+    }
+}
+
+/// HDLC byte stuffing against the extracted `stuff`, `encode_frame` and `unstuff`: the stuffed
+/// payload and the framed payload byte for byte, and every `unstuff` outcome -- success with and
+/// without residual bytes, both truncation exits and a bad escape -- as the result, the consumed
+/// count and the error variant.
+#[test]
+fn stuff_agrees_with_extracted_vectors() {
+    let mut inputs = Inputs::new("stuff_agrees_with_extracted_vectors");
+    let records = parse_vectors();
+    let before = inputs.count;
+    for r in &records {
+        match r.op.as_str() {
+            "stuff.stuff" => {
+                inputs.saw();
+                let mut got: Vec<u8> = Vec::new();
+                stuff(&u8s(&r.args), &mut got);
+                assert_eq!(got, u8s(r.field(0)), "stuff disagrees for {}", r.args.join(" "));
+            }
+            "stuff.encode_frame" => {
+                inputs.saw();
+                let mut got: Vec<u8> = Vec::new();
+                stuff_encode_frame(&u8s(&r.args), &mut got);
+                assert_eq!(got, u8s(r.field(0)), "encode_frame disagrees for {}", r.args.join(" "));
+            }
+            "stuff.unstuff" => {
+                inputs.saw();
+                let got = unstuff(&u8s(&r.args));
+                assert_eq!(got, expected_unstuff(r), "unstuff disagrees for {}", r.args.join(" "));
+            }
+            _ => {}
+        }
+    }
+    assert!(inputs.count > before, "vectors.txt carries no stuff records");
+    inputs.report();
+}
+
 /// of one -- would leave every test passing while checking less. This asserts instead that each
 /// translated operation is present with every branch, both queue records and both channel queues,
 /// the zero-capacity traces, the compact CRC record, the out-of-domain class, and that no record
@@ -883,7 +945,7 @@ fn extracted_vectors_cover_every_translated_operation() {
     let mut inputs = Inputs::new("extracted_vectors_cover_every_translated_operation");
     let records = parse_vectors();
     #[rustfmt::skip]
-    let branches: [(&str, &str, &str); 26] = [
+    let branches: [(&str, &str, &str); 29] = [
         ("ringbuffer.push", "ok", ""), ("ringbuffer.push", "err", ""),
         ("ringbuffer.pop", "some", ""), ("ringbuffer.pop", "none", ""),
         ("vecqueue.push", "ok", ""), ("vecqueue.push", "err", ""),
@@ -897,6 +959,8 @@ fn extracted_vectors_cover_every_translated_operation() {
         ("channel.vecqueue.send", "ok", ""), ("channel.vecqueue.send", "err", ""),
         ("channel.vecqueue.deliver", "ok", ""), ("channel.vecqueue.deliver", "err", ""),
         ("channel.vecqueue.take", "some", ""), ("channel.vecqueue.take", "none", ""),
+        ("stuff.unstuff", "ok", ""), ("stuff.unstuff", "err", "truncated"),
+        ("stuff.unstuff", "err", "badescape"),
     ];
     for (op, status, detail) in branches {
         inputs.saw();
@@ -906,9 +970,10 @@ fn extracted_vectors_cover_every_translated_operation() {
         );
     }
     #[rustfmt::skip]
-    let total: [&str; 8] = [
+    let total: [&str; 10] = [
         "ringbuffer.new", "vecqueue.new", "channel.ringbuffer.new", "channel.vecqueue.new",
         "varint.encode", "crc8.bits", "crc8.table", "channel.encode_frame",
+        "stuff.stuff", "stuff.encode_frame",
     ];
     for op in total {
         inputs.saw();
