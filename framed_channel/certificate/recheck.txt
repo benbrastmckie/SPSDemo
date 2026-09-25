@@ -2,7 +2,7 @@
 # What each checker establishes, and what it does not: certificate/README.md, "recheck.txt",
 # and every manifest's trust.G0_checker.independent_recheck block. This record is current only
 # while the identity below equals the identity line of digests.txt.
-certificate identity: sha256:8c9ca06026e186f6b01a6e6a382b5717a36c932cd7ef05ee12644e4eee461bd7
+certificate identity: sha256:bdbc02f9adac3e76c57cad79473e5e10482c436f40579d59bd50143d062dade9
 produced on: Linux x86_64 (local)
 record: complete
 
@@ -64,9 +64,9 @@ landrun: 0.1.17 (/nix/store/k7xmll89n7zyhjpcp3kc3ynfk6lfj5r0-landrun-0.1.17/bin/
 verdict: comparator core OK Your solution is okay!
 verdict: comparator flagged-FramedChannel.Crc8.crc8_step_linear EXPECTED-REJECTION Illegal axiom detected: 'FramedChannel.Crc8.crc8_step_linear._native.bv_decide.ax_1_26'
 verdict: comparator bridge OK Your solution is okay!
-verdict: lean4lean core OK modules=26 declarations=725 every declaration the listed modules add was re-typechecked; imports taken from .olean
-verdict: leanchecker core OK modules=26 declarations=- same-kernel replay of the listed modules from .olean
+verdict: lean4lean core OK modules=29 declarations=819 every declaration the listed modules add was re-typechecked; imports taken from .olean
+verdict: leanchecker core OK modules=29 declarations=- same-kernel replay of the listed modules from .olean
 verdict: leanchecker-fresh core OK modules=1 declarations=- same-kernel replay of FramedChannel.Registry and its whole import closure, from Init
 verdict: lean4lean-fresh core NOT-RUN modules=1 declarations=- not requested (check.sh --recheck-fresh; about 5 minutes)
-verdict: lean4lean bridge OK modules=36 declarations=1543 every declaration the listed modules add was re-typechecked; imports taken from .olean
-verdict: leanchecker bridge OK modules=36 declarations=- same-kernel replay of the listed modules from .olean
+verdict: lean4lean bridge OK modules=41 declarations=1779 every declaration the listed modules add was re-typechecked; imports taken from .olean
+verdict: leanchecker bridge OK modules=41 declarations=- same-kernel replay of the listed modules from .olean
