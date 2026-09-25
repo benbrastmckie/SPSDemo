@@ -472,6 +472,14 @@ jobs:
           command -v nix > /dev/null 2>&1 || . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh 2>/dev/null || true
           nix develop .#build --command bash framed_channel/tests/layer/run.sh
 
+      - name: framed_channel/tests/owner-classification/run.sh
+        id: test_owner_classification
+        shell: wsl-bash {0}
+        run: |
+          set -euo pipefail
+          command -v nix > /dev/null 2>&1 || . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh 2>/dev/null || true
+          nix develop .#build --command bash framed_channel/tests/owner-classification/run.sh
+
       - name: framed_channel/tests/spdx/run.sh
         id: test_spdx
         shell: wsl-bash {0}

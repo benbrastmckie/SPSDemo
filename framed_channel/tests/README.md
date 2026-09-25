@@ -12,6 +12,7 @@ suite covers and points there for the rest.
 | `approvals/` | `check-approvals.sh` and `approve.sh --record`'s refusals, plus `source_sha256`'s version-independence -- see `approvals/run.sh` | `*.yaml` cases with stand-in `candidates.txt`/`spec*.records`; a throwaway `rust/` tree for the version-independence cases |
 | `ladder/` | the proof-method ladder in `lean/FramedChannel/Ladder.lean` -- see `ladder/run.sh` | `*.lean` cases elaborated with `lake env lean` |
 | `layer/` | `../check.sh`'s layer import rules: both halves of each rule (the import that must be rejected, and the one that must not be), plus the assertion that no rule types a component name -- see `layer/run.sh` | module paths and import lists, matched by check.sh's own extracted `layer-rules` block |
+| `owner-classification/` | `../check.sh`'s `owner_of_proof`/`owner_of_supporting` (the `supporting:` name that must escape every ERE metacharacter, not just `.`, plus the negative and near-miss halves) -- see `owner-classification/run.sh` | synthetic fixture `.lean` files, plus the two real bridge-owned names checked against the repository's own `aeneas/FramedChannelAeneas` tree |
 | `aeneas-revs/` | `aeneas_rev_coherence` (`scripts/lib/aeneas-revs.sh`) -- see `aeneas-revs/run.sh` | a throwaway tree with fake `aeneas`/`charon` on `PATH` |
 | `recheck-revs/` | `recheck_pin_coherence` and `_recheck_load_pin` (`scripts/lib/recheck-revs.sh`) -- see `recheck-revs/run.sh` | a throwaway tree with its own copy of `recheck-revs.sh` |
 | `recheck-record/` | `scripts/recheck-record.sh`'s verdict-to-record rendering, including a golden check against the real committed `certificate/recheck.txt` -- see `recheck-record/run.sh` | canned verdict/deviation text; the golden case reads the committed record via `git show` |
@@ -40,6 +41,7 @@ bash tests/launcher-compat/run.sh   needs bash >= 3.2 only; on a machine without
                                 set LAUNCHER_COMPAT_BASH="$(command -v bash)" for the dynamic pass
 bash tests/ladder/run.sh        needs the Lean toolchain in ../lean/lean-toolchain
 bash tests/layer/run.sh         needs bash >= 4.4, coreutils; no Lean toolchain, no build
+bash tests/owner-classification/run.sh   needs bash >= 4.4, coreutils; no Lean toolchain, no build
 bash tests/recheck-record/run.sh   needs bash >= 4.4, awk, coreutils; git (optional, for the golden case)
 bash tests/recheck-revs/run.sh  needs bash >= 4.4, jq, awk
 bash tests/spdx/run.sh          needs bash >= 4.4

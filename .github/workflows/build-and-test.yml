@@ -144,6 +144,12 @@ jobs:
           set -euo pipefail
           nix develop .#build --command bash framed_channel/tests/layer/run.sh
 
+      - name: framed_channel/tests/owner-classification/run.sh
+        id: test_owner_classification
+        run: |
+          set -euo pipefail
+          nix develop .#build --command bash framed_channel/tests/owner-classification/run.sh
+
       - name: framed_channel/tests/spdx/run.sh
         id: test_spdx
         run: |
