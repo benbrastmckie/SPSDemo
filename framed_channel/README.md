@@ -277,8 +277,8 @@ are Lean-only.
 ## Unit names
 
 **The canonical name of a unit is its Rust type name.** Every other spelling of that unit is
-derived from it by a fixed convention, so there is one name per unit and the sixth component can
-be named without inventing anything.
+derived from it by a fixed convention, so there is one name per unit and each new component is
+named without inventing anything.
 
 | Rust | extraction module | model namespace / type | Challenge modules | bridge namespace | instantiation suffix | manifest |
 |---|---|---|---|---|---|---|
@@ -286,6 +286,7 @@ be named without inventing anything.
 | `VecQueue<T>` (`src/queue.rs`) | **`queue`** (the one exception, below) | `FramedChannel.VecQueue` / `VQ` | `FramedChannelChallenge.VecQueue`, `FramedChannelAeneasChallenge.VecQueue` | `FramedChannel.Bridge.vec_queue` | `_VQ` | `certificate/vec_queue.yaml` |
 | `Varint` (`src/varint.rs`, free functions) | `varint` | `FramedChannel.Varint` / `Leb128` | `FramedChannelChallenge.Varint`, `FramedChannelAeneasChallenge.Varint` | `FramedChannel.Bridge.varint` | -- (one model) | `certificate/varint.yaml` |
 | `Crc8` (`src/crc8.rs`, free functions) | `crc8` | `FramedChannel.Crc8` / `Bitwise`, `Tabled` | `FramedChannelChallenge.Crc8`, `FramedChannelAeneasChallenge.Crc8` | `FramedChannel.Bridge.crc8` | `Bitwise` / `Tabled` | `certificate/crc8.yaml` |
+| `Stuff` (`src/stuff.rs`, free functions) | `stuff` | `FramedChannel.Stuff` / `Hdlc` | `FramedChannelChallenge.Stuff`, `FramedChannelAeneasChallenge.Stuff` | `FramedChannel.Bridge.stuff` | -- (one model) | `certificate/stuff.yaml` |
 | `Channel<Q>` (`src/channel.rs`) | `channel` | `FramedChannel.Channel` / `Chan` | `FramedChannelChallenge.Channel`, `FramedChannelAeneasChallenge.Channel` | `FramedChannel.Bridge.channel` | `_RB` / `_VQ` | `certificate/channel.yaml` |
 
 The conventions the table encodes:
