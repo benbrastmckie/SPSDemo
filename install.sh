@@ -14,6 +14,14 @@
 # Never installs Nix. When nix is absent, this prints the Determinate Systems installer command
 # and exits; run that yourself, then re-run this script.
 #
+# Also activates the tracked pre-push hook (.githooks/pre-push, which runs
+# `check.sh --core-only` before every push -- see that file's own header): sets
+# `git config core.hooksPath .githooks`, repository-local, when unset or already pointing there.
+# When core.hooksPath is already set to something else, this script leaves it alone and prints
+# the manual command instead of overwriting a contributor's own configuration. Skipped, with a
+# notice, outside a git work tree (e.g. an extracted tarball copy). See docs/development.md's
+# pre-push hook subsection for what it runs and how to skip it for a deliberate WIP push.
+#
 # Usage: bash install.sh [--with-bridge] [--yes] [-h | --help]
 #   --with-bridge   also warm the Charon/Aeneas bridge package's Lean build (framed_channel/aeneas,
 #                   inside the light `.#build` shell -- no charon/aeneas realized): fetches
@@ -140,6 +148,26 @@ fi
 
 echo "==> Prerequisites OK (git, nix with flakes)"
 
+echo "==> Activating pre-push hook (git config core.hooksPath)"
+if git -C "$ROOT" rev-parse --is-inside-work-tree > /dev/null 2>&1; then
+  current_hooks_path="$(git -C "$ROOT" config --get core.hooksPath 2>/dev/null || true)"
+  case "$current_hooks_path" in
+    ""|.githooks)
+      git -C "$ROOT" config core.hooksPath .githooks
+      HOOK_STATUS="active (core.hooksPath=.githooks; runs check.sh --core-only before every push)"
+      ;;
+    *)
+      echo "install.sh: core.hooksPath is already set to '$current_hooks_path'; leaving it alone." >&2
+      echo "install.sh: to activate the --core-only pre-push hook too, run:" >&2
+      echo "install.sh:   git config core.hooksPath .githooks" >&2
+      HOOK_STATUS="NOT activated (core.hooksPath is already '$current_hooks_path')"
+      ;;
+  esac
+else
+  echo "install.sh: not inside a git work tree; skipping pre-push hook activation" >&2
+  HOOK_STATUS="NOT activated (not a git work tree)"
+fi
+
 # name dir command -- runs `command` inside dir (relative to ROOT), under the `.#build` shell,
 # with labeled output; exits 1 naming the step on failure.
 warmup_step() {
@@ -190,8 +218,9 @@ if [ "$WITH_BRIDGE" -eq 1 ]; then
   fi
 fi
 
-cat <<'EOM'
-==> Ready. Next:
+cat <<EOM
+==> Ready. Pre-push hook: $HOOK_STATUS
+    Next:
   nix develop                                       # the light default shell (lint + build only)
   bash framed_channel/check.sh --committed-extraction   # build+audit both packages, no charon/aeneas
   bash full-gate.sh --dry-run                       # see what the full gate would cost on this machine
