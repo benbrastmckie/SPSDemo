@@ -321,6 +321,49 @@ theorem lt_total_cand_false : ¬ lt_total_cand :=
 
 refuted% lt_total_cand lt_total_cand_false search_lt_total
 
+/-! ## 12. The unstuffed `Channel` does not write a marker-free wire
+
+This is why `Composition/StuffedChannel/` exists. `Channel` writes a frame as `marker :: lenBytes ++
+payload ++ [check]`, and nothing stops a byte of the length prefix, the payload or the check byte
+from being the flag itself -- so a receiver cannot scan the wire to the next flag, and the
+composite's own framing offers no transparency. `StuffedChannel.wire_flag_free_of_send` is the
+theorem `Channel` cannot have, and the refutation below is the other half of that claim.
+
+Two neighbouring statements it is worth not confusing with this one:
+
+* The **round trip** at a marker-bearing payload is *true* of `Channel`, not false:
+  `parseFrame_encodeFrame` carries no marker-freedom hypothesis, and
+  `parseFrame (encodeFrame [0x7E, 0x7E, 0x01]) = .ok ([0x7E, 0x7E, 0x01], [])` closes by
+  `decide +kernel`. A varint length prefix already tells the receiver how many bytes to take. So
+  the round trip is not refutable here and is not what stuffing buys.
+* Block 3's `parseFrameResync_roundtrip` is a **different** candidate: it quantifies over a
+  hypothetical receiver's behaviour rather than over the encoder's output, its witness is the
+  length `126` rather than a payload, and its failure mechanism is a *varint length* byte
+  colliding with the flag rather than a payload byte doing so. The candidate below is about what
+  `encodeFrame` puts on the wire, and is refuted at a payload of one flag byte. -/
+
+/-- The rejected candidate: no byte `Channel` writes after the frame's leading boundary byte is the
+flag, so a receiver could scan to the next flag. -/
+def channel_wire_marker_free : Prop :=
+  ∀ p : Frame, FrameOK p → ∀ c ∈ (encodeFrame p).tail, c ≠ marker
+
+/-- Over the all-flag payloads of length `0..7`, the first whose encoding carries the flag after the
+leading boundary byte is the one-byte payload `[marker]`: the payload byte itself collides with the
+flag. `[PROVED: kernel]` -/
+theorem search_channel_wire_marker_free :
+    ((List.range 8).map (fun k => List.replicate k marker)).find?
+        (fun p => !decide (∀ c ∈ (encodeFrame p).tail, c ≠ marker))
+      = some [marker] := by
+  decide +kernel
+
+/-- `FrameOK` has no `Decidable` instance, so it is unfolded before `decide`. `[PROVED: kernel]` -/
+theorem channel_wire_marker_free_false : ¬ channel_wire_marker_free :=
+  fun h => absurd (h [marker] (by unfold FrameOK; decide +kernel)) (by decide +kernel)
+
+-- One line, deliberately: check.sh's proof-ladder stage reads a refuted% record with
+-- `awk '{ print $2, $3, $4 }'`, so a record wrapped across two lines loses its search theorem.
+refuted% channel_wire_marker_free channel_wire_marker_free_false search_channel_wire_marker_free
+
 #print axioms search_encode_length_le_unbounded
 #print axioms encode_length_le_unbounded_false
 #print axioms search_varint_roundtrip_unbounded
@@ -344,5 +387,7 @@ refuted% lt_total_cand lt_total_cand_false search_lt_total
 #print axioms cycle_witness
 #print axioms search_lt_total
 #print axioms lt_total_cand_false
+#print axioms search_channel_wire_marker_free
+#print axioms channel_wire_marker_free_false
 
 end FramedChannel
