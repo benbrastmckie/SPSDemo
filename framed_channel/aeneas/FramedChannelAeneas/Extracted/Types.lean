@@ -95,4 +95,12 @@ inductive stuff.UnstuffError where
 | Truncated : stuff.UnstuffError
 | BadEscape : stuff.UnstuffError
 
+/-- [framed_channel::stuffed_channel::StuffedChannel]
+    Source: 'src/stuffed_channel.rs', lines 103:0-107:1
+    Visibility: public -/
+structure stuffed_channel.StuffedChannel (Q : Type) where
+  out : Q
+  wire : alloc.vec.Vec Std.U8
+  in_flight : Std.Usize
+
 end framed_channel

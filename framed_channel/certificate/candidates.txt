@@ -3,7 +3,7 @@
 # extraction joined: aeneas/FramedChannelAeneas/Extracted/Funs.lean (by source span)
 # crate forbids unsafe_code (rust/src/lib.rs): yes
 # translated declarations matching the concurrency/IO/interior-mutability denylist: 0
-# items: 95 local; 95 in-subset; 0 excluded; 28 derived impls
+# items: 107 local; 107 in-subset; 0 excluded; 30 derived impls
 # scope: syntactic checks over the crate's own LLBC items; std internals are not audited (G3)
 # columns: lean_name	rust_path	span	visibility	kind	derived	verdict	reason
 framed_channel.channel.Channel.Insts.CoreCloneClone.clone	framed_channel::channel::{impl core::clone::Clone}::clone	src/channel.rs:96:16-96:21	pub	trait-impl	derived:Clone	in-subset	-
@@ -92,6 +92,18 @@ framed_channel.stuff.XOR_MASK	framed_channel::stuff::XOR_MASK	src/stuff.rs:26:0-
 framed_channel.stuff.encode_frame	framed_channel::stuff::encode_frame	src/stuff.rs:64:0-67:1	pub	fn	-	in-subset	-
 framed_channel.stuff.stuff	framed_channel::stuff::stuff	src/stuff.rs:43:0-58:1	pub	fn	-	in-subset	-
 framed_channel.stuff.unstuff	framed_channel::stuff::unstuff	src/stuff.rs:77:0-104:1	pub	fn	-	in-subset	-
+framed_channel.stuffed_channel.StuffedChannel.Insts.CoreCloneClone.clone	framed_channel::stuffed_channel::{impl core::clone::Clone}::clone	src/stuffed_channel.rs:102:16-102:21	pub	trait-impl	derived:Clone	in-subset	-
+framed_channel.stuffed_channel.StuffedChannel.Insts.CoreFmtDebug.fmt	framed_channel::stuffed_channel::{impl core::fmt::Debug}::fmt	src/stuffed_channel.rs:102:9-102:14	pub	trait-impl	derived:Debug	in-subset	-
+framed_channel.stuffed_channel.StuffedChannel.deliver	framed_channel::stuffed_channel::{impl}::deliver	src/stuffed_channel.rs:158:4-173:5	pub	fn	-	in-subset	-
+framed_channel.stuffed_channel.StuffedChannel.queued	framed_channel::stuffed_channel::{impl}::queued	src/stuffed_channel.rs:181:4-183:5	pub	fn	-	in-subset	-
+framed_channel.stuffed_channel.StuffedChannel.send	framed_channel::stuffed_channel::{impl}::send	src/stuffed_channel.rs:137:4-147:5	pub	fn	-	in-subset	-
+framed_channel.stuffed_channel.StuffedChannel.take	framed_channel::stuffed_channel::{impl}::take	src/stuffed_channel.rs:176:4-178:5	pub	fn	-	in-subset	-
+framed_channel.stuffed_channel.StuffedChannel.with_queue	framed_channel::stuffed_channel::{impl}::with_queue	src/stuffed_channel.rs:122:4-124:5	pub	fn	-	in-subset	-
+framed_channel.stuffed_channel.StuffedChannelRingBufferVecU8.new	framed_channel::stuffed_channel::{impl}::new	src/stuffed_channel.rs:114:4-116:5	pub	fn	-	in-subset	-
+framed_channel.stuffed_channel.body	framed_channel::stuffed_channel::body	src/stuffed_channel.rs:45:0-51:1	priv	fn	-	in-subset	-
+framed_channel.stuffed_channel.drop_front	framed_channel::stuffed_channel::drop_front	src/stuffed_channel.rs:93:0-98:1	priv	fn	-	in-subset	-
+framed_channel.stuffed_channel.encode_stuffed	framed_channel::stuffed_channel::encode_stuffed	src/stuffed_channel.rs:56:0-59:1	pub	fn	-	in-subset	-
+framed_channel.stuffed_channel.parse_stuffed	framed_channel::stuffed_channel::parse_stuffed	src/stuffed_channel.rs:68:0-89:1	pub	fn	-	in-subset	-
 framed_channel.varint.VarintError.Insts.CoreCloneClone.clone	framed_channel::varint::{impl core::clone::Clone}::clone	src/varint.rs:8:16-8:21	pub	trait-impl	derived:Clone	in-subset	-
 framed_channel.varint.VarintError.Insts.CoreCmpPartialEqVarintError.eq	framed_channel::varint::{impl core::cmp::PartialEq}::eq	src/varint.rs:8:29-8:38	pub	trait-impl	derived:PartialEq	in-subset	-
 framed_channel.varint.VarintError.Insts.CoreFmtDebug.fmt	framed_channel::varint::{impl core::fmt::Debug}::fmt	src/varint.rs:8:9-8:14	pub	trait-impl	derived:Debug	in-subset	-
