@@ -11,6 +11,7 @@ use framed_channel::queue::BoundedQueue;
 use framed_channel::ring_buffer::{Full, RingBuffer};
 use framed_channel::seq_num::SeqNum;
 use framed_channel::stuff::{encode_frame as stuff_encode_frame, stuff, unstuff, UnstuffError};
+use framed_channel::stuffed_channel::{encode_stuffed, parse_stuffed, StuffedChannel};
 use framed_channel::varint::{decode_u32, encode_u32, VarintError};
 use framed_channel::zigzag::{decode_i32, encode_i32, unzigzag, zigzag};
 use framed_channel::{Channel, Frame, VecQueue, MARKER};
@@ -969,6 +970,147 @@ fn channel_agrees_with_extracted_vectors_vec_queue() {
     inputs.report();
 }
 
+/// The transparent frame codec byte for byte against the extracted
+/// `encode_stuffed`/`parse_stuffed`, and the state machine replayed against a Rust
+/// `StuffedChannel<Q>` from the records the extraction computed at the same queue: `prefix` is
+/// `stuffed_channel.ringbuffer` (`StuffedChannel::new` over the extracted ring buffer record) or
+/// `stuffed_channel.vecqueue` (`StuffedChannel::with_queue` over the extracted `VecQueue` record).
+/// `wire` and `in_flight` are private, so the comparison is at the result, the payload and
+/// `queued()`.
+fn stuffed_channel_agrees_with_extracted_vectors_at<Q: BoundedQueue<Frame>>(
+    prefix: &str,
+    new: fn(usize) -> StuffedChannel<Q>,
+    inputs: &mut Inputs,
+) {
+    let records = parse_vectors();
+    let mut ch: StuffedChannel<Q> = new(1);
+    let mut started = false;
+    let before = inputs.count;
+    for r in &records {
+        let Some(op) = r.op.strip_prefix(prefix) else {
+            continue;
+        };
+        match op {
+            ".new" => {
+                ch = new(one_u32(&r.args) as usize);
+                started = true;
+                inputs.saw();
+                assert_eq!(ch.queued(), one_usize(r.field(0)), "queued disagrees at new");
+            }
+            ".send" => {
+                assert!(started, "vectors.txt: a send record before any .new for {prefix}");
+                inputs.saw();
+                let got = ch.send(&u8s(&r.args));
+                match r.status(0) {
+                    "ok" => assert_eq!(got, Ok(()), "send result disagrees"),
+                    "err" => assert_eq!(got, Err(SendFail), "send result disagrees"),
+                    other => panic!("vectors.txt: unexpected send result {other}"),
+                }
+                assert_eq!(ch.queued(), one_usize(r.field(1)), "queued disagrees after send");
+            }
+            ".deliver" => {
+                assert!(started, "vectors.txt: a deliver record before any .new for {prefix}");
+                inputs.saw();
+                let got = ch.deliver();
+                match r.status(0) {
+                    "ok" => assert_eq!(got, Ok(u8s(r.field(1))), "deliver payload disagrees"),
+                    "err" => assert_eq!(got, Err(DeliverFail), "deliver should have failed"),
+                    other => panic!("vectors.txt: unexpected deliver result {other}"),
+                }
+                assert_eq!(ch.queued(), one_usize(r.field(2)), "queued disagrees after deliver");
+            }
+            ".take" => {
+                assert!(started, "vectors.txt: a take record before any .new for {prefix}");
+                inputs.saw();
+                let got = ch.take();
+                match r.status(0) {
+                    "some" => assert_eq!(got, Some(u8s(r.field(1))), "take payload disagrees"),
+                    "none" => assert_eq!(got, None, "take should have returned None"),
+                    other => panic!("vectors.txt: unexpected take result {other}"),
+                }
+                assert_eq!(ch.queued(), one_usize(r.field(2)), "queued disagrees after take");
+            }
+            _ => {}
+        }
+    }
+    assert!(inputs.count > before, "vectors.txt carries no stuffed-channel records for {prefix}");
+}
+
+fn new_ring_buffer_stuffed_channel(cap: usize) -> StuffedChannel<RingBuffer<Frame>> {
+    StuffedChannel::new(cap)
+}
+
+fn new_vec_queue_stuffed_channel(cap: usize) -> StuffedChannel<VecQueue<Frame>> {
+    StuffedChannel::with_queue(cap)
+}
+
+/// The transparent codec and `StuffedChannel::new` (the ring buffer channel) against their own
+/// extracted translation. The `encode_stuffed` records also pin the property the channel's
+/// `encode_frame` records cannot show: the flag byte appears in a stuffed frame only as its last
+/// byte.
+#[test]
+fn stuffed_channel_agrees_with_extracted_vectors() {
+    let mut inputs = Inputs::new("stuffed_channel_agrees_with_extracted_vectors");
+    let records = parse_vectors();
+    let before = inputs.count;
+    for r in &records {
+        match r.op.as_str() {
+            "stuffed_channel.encode_stuffed" => {
+                inputs.saw();
+                let payload = u8s(&r.args);
+                let Ok(len) = u32::try_from(payload.len()) else {
+                    panic!("vectors.txt: an encode_stuffed payload longer than u32::MAX");
+                };
+                let mut got: Vec<u8> = Vec::new();
+                encode_stuffed(&payload, len, &mut got);
+                let expected = u8s(r.field(0));
+                assert_eq!(got, expected, "encode_stuffed disagrees");
+                // Transparency, on the bytes themselves: the flag is the frame terminator and
+                // nothing else. The corresponding assertion about `encode_frame` would fail.
+                assert_eq!(got.last(), Some(&MARKER), "a stuffed frame must end with the flag");
+                let body = got.get(..got.len() - 1).expect("a stuffed frame is never empty");
+                assert!(
+                    !body.contains(&MARKER),
+                    "the flag byte appears inside a stuffed frame: {body:?}"
+                );
+            }
+            "stuffed_channel.parse_stuffed" => {
+                inputs.saw();
+                let got = parse_stuffed(&u8s(&r.args));
+                match r.status(0) {
+                    "some" => assert_eq!(
+                        got,
+                        Some((u8s(r.field(1)), one_usize(r.field(2)))),
+                        "parse_stuffed disagrees"
+                    ),
+                    "none" => assert_eq!(got, None, "parse_stuffed should have returned None"),
+                    other => panic!("vectors.txt: unexpected parse_stuffed result {other}"),
+                }
+            }
+            _ => {}
+        }
+    }
+    assert!(inputs.count > before, "vectors.txt carries no stuffed frame-codec records");
+    stuffed_channel_agrees_with_extracted_vectors_at(
+        "stuffed_channel.ringbuffer",
+        new_ring_buffer_stuffed_channel,
+        &mut inputs,
+    );
+    inputs.report();
+}
+
+/// `StuffedChannel::with_queue` at `VecQueue<Frame>` against its own extracted translation.
+#[test]
+fn stuffed_channel_agrees_with_extracted_vectors_vec_queue() {
+    let mut inputs = Inputs::new("stuffed_channel_agrees_with_extracted_vectors_vec_queue");
+    stuffed_channel_agrees_with_extracted_vectors_at(
+        "stuffed_channel.vecqueue",
+        new_vec_queue_stuffed_channel,
+        &mut inputs,
+    );
+    inputs.report();
+}
+
 /// Count the records of `op` whose field 0 starts with `status` (any status when `status` is
 /// empty) and, when `detail` is non-empty, whose second token of field 0 is `detail`.
 fn count_records(records: &[Record], op: &str, status: &str, detail: &str) -> usize {
@@ -1152,7 +1294,7 @@ fn extracted_vectors_cover_every_translated_operation() {
     let mut inputs = Inputs::new("extracted_vectors_cover_every_translated_operation");
     let records = parse_vectors();
     #[rustfmt::skip]
-    let branches: [(&str, &str, &str); 32] = [
+    let branches: [(&str, &str, &str); 46] = [
         ("ringbuffer.push", "ok", ""), ("ringbuffer.push", "err", ""),
         ("ringbuffer.pop", "some", ""), ("ringbuffer.pop", "none", ""),
         ("vecqueue.push", "ok", ""), ("vecqueue.push", "err", ""),
@@ -1170,6 +1312,14 @@ fn extracted_vectors_cover_every_translated_operation() {
         ("channel.vecqueue.take", "some", ""), ("channel.vecqueue.take", "none", ""),
         ("stuff.unstuff", "ok", ""), ("stuff.unstuff", "err", "truncated"),
         ("stuff.unstuff", "err", "badescape"),
+        ("stuffed_channel.parse_stuffed", "some", ""), ("stuffed_channel.parse_stuffed", "none", ""),
+        ("stuffed_channel.ringbuffer.send", "ok", ""), ("stuffed_channel.ringbuffer.send", "err", ""),
+        ("stuffed_channel.ringbuffer.deliver", "ok", ""),
+        ("stuffed_channel.ringbuffer.deliver", "err", ""),
+        ("stuffed_channel.ringbuffer.take", "some", ""), ("stuffed_channel.ringbuffer.take", "none", ""),
+        ("stuffed_channel.vecqueue.send", "ok", ""), ("stuffed_channel.vecqueue.send", "err", ""),
+        ("stuffed_channel.vecqueue.deliver", "ok", ""), ("stuffed_channel.vecqueue.deliver", "err", ""),
+        ("stuffed_channel.vecqueue.take", "some", ""), ("stuffed_channel.vecqueue.take", "none", ""),
     ];
     for (op, status, detail) in branches {
         inputs.saw();
@@ -1179,12 +1329,14 @@ fn extracted_vectors_cover_every_translated_operation() {
         );
     }
     #[rustfmt::skip]
-    let total: [&str; 19] = [
+    let total: [&str; 22] = [
         "ringbuffer.new", "vecqueue.new", "channel.ringbuffer.new", "channel.vecqueue.new",
         "varint.encode", "crc8.bits", "crc8.table", "channel.encode_frame",
         "stuff.stuff", "stuff.encode_frame",
         "zigzag.encode", "zigzag.zigzag", "zigzag.unzigzag",
         "seq_num.new", "seq_num.get", "seq_num.succ", "seq_num.add", "seq_num.dist", "seq_num.lt",
+        "stuffed_channel.encode_stuffed",
+        "stuffed_channel.ringbuffer.new", "stuffed_channel.vecqueue.new",
     ];
     for op in total {
         inputs.saw();

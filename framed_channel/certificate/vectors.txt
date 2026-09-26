@@ -494,3 +494,139 @@ channel.vecqueue.deliver => ok; 120; 2
 channel.vecqueue.take => some; 0 1 2 3 4 5 6 7 8 9 126 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99 100 101 102 103 104 105 106 107 108 109 110 111 112 113 114 115 116 117 118 119 120 121 122 123 124 125; 1
 channel.vecqueue.take => some; 120; 0
 channel.vecqueue.take => none; ; 0
+# ---- StuffedChannel: the extracted transparent frame codec -----------------------
+# The transparent counterpart of the channel codec. Per payload: the stuffed frame its body
+#   (varint length, payload, check byte) becomes, the parse of that frame, its parse with a
+#   trailing byte, one byte short, and the frame with the byte before the terminating flag
+#   bumped. parse_stuffed records carry `some; <payload>; <consumed>` or `none`, and the
+#   consumed count includes the terminating flag.
+# The private `body` and `drop_front` carry no records: differential.rs cannot call a private
+#   function, and a vector nothing consumes is the gap the coverage census exists to prevent.
+# Note what the encode_stuffed records show and the channel's encode_frame records cannot: the
+#   flag byte 126 appears in a stuffed frame ONLY as its last byte.
+stuffed_channel.encode_stuffed => 0 0 126
+stuffed_channel.parse_stuffed 0 0 126 => some; ; 3
+stuffed_channel.parse_stuffed 0 0 126 99 => some; ; 3
+stuffed_channel.parse_stuffed 0 0 => none
+stuffed_channel.parse_stuffed 0 1 126 => none
+stuffed_channel.encode_stuffed 104 105 => 2 104 105 69 126
+stuffed_channel.parse_stuffed 2 104 105 69 126 => some; 104 105; 5
+stuffed_channel.parse_stuffed 2 104 105 69 126 99 => some; 104 105; 5
+stuffed_channel.parse_stuffed 2 104 105 69 => none
+stuffed_channel.parse_stuffed 2 104 105 70 126 => none
+stuffed_channel.encode_stuffed 102 114 97 109 101 100 95 99 104 97 110 110 101 108 => 14 102 114 97 109 101 100 95 99 104 97 110 110 101 108 133 126
+stuffed_channel.parse_stuffed 14 102 114 97 109 101 100 95 99 104 97 110 110 101 108 133 126 => some; 102 114 97 109 101 100 95 99 104 97 110 110 101 108; 17
+stuffed_channel.parse_stuffed 14 102 114 97 109 101 100 95 99 104 97 110 110 101 108 133 126 99 => some; 102 114 97 109 101 100 95 99 104 97 110 110 101 108; 17
+stuffed_channel.parse_stuffed 14 102 114 97 109 101 100 95 99 104 97 110 110 101 108 133 => none
+stuffed_channel.parse_stuffed 14 102 114 97 109 101 100 95 99 104 97 110 110 101 108 134 126 => none
+stuffed_channel.encode_stuffed 126 126 126 => 3 125 94 125 94 125 94 66 126
+stuffed_channel.parse_stuffed 3 125 94 125 94 125 94 66 126 => some; 126 126 126; 9
+stuffed_channel.parse_stuffed 3 125 94 125 94 125 94 66 126 99 => some; 126 126 126; 9
+stuffed_channel.parse_stuffed 3 125 94 125 94 125 94 66 => none
+stuffed_channel.parse_stuffed 3 125 94 125 94 125 94 67 126 => none
+stuffed_channel.encode_stuffed 125 125 => 2 125 93 125 93 63 126
+stuffed_channel.parse_stuffed 2 125 93 125 93 63 126 => some; 125 125; 7
+stuffed_channel.parse_stuffed 2 125 93 125 93 63 126 99 => some; 125 125; 7
+stuffed_channel.parse_stuffed 2 125 93 125 93 63 => none
+stuffed_channel.parse_stuffed 2 125 93 125 93 64 126 => none
+stuffed_channel.encode_stuffed 0 1 2 3 4 5 6 7 8 9 126 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99 100 101 102 103 104 105 106 107 108 109 110 111 112 113 114 115 116 117 118 119 120 121 122 123 124 125 => 125 94 0 1 2 3 4 5 6 7 8 9 125 94 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99 100 101 102 103 104 105 106 107 108 109 110 111 112 113 114 115 116 117 118 119 120 121 122 123 124 125 93 254 126
+stuffed_channel.parse_stuffed 125 94 0 1 2 3 4 5 6 7 8 9 125 94 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99 100 101 102 103 104 105 106 107 108 109 110 111 112 113 114 115 116 117 118 119 120 121 122 123 124 125 93 254 126 => some; 0 1 2 3 4 5 6 7 8 9 126 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99 100 101 102 103 104 105 106 107 108 109 110 111 112 113 114 115 116 117 118 119 120 121 122 123 124 125; 132
+stuffed_channel.parse_stuffed 125 94 0 1 2 3 4 5 6 7 8 9 125 94 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99 100 101 102 103 104 105 106 107 108 109 110 111 112 113 114 115 116 117 118 119 120 121 122 123 124 125 93 254 126 99 => some; 0 1 2 3 4 5 6 7 8 9 126 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99 100 101 102 103 104 105 106 107 108 109 110 111 112 113 114 115 116 117 118 119 120 121 122 123 124 125; 132
+stuffed_channel.parse_stuffed 125 94 0 1 2 3 4 5 6 7 8 9 125 94 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99 100 101 102 103 104 105 106 107 108 109 110 111 112 113 114 115 116 117 118 119 120 121 122 123 124 125 93 254 => none
+stuffed_channel.parse_stuffed 125 94 0 1 2 3 4 5 6 7 8 9 125 94 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99 100 101 102 103 104 105 106 107 108 109 110 111 112 113 114 115 116 117 118 119 120 121 122 123 124 125 93 255 126 => none
+# ---- StuffedChannel<Q>: the extracted state machine at both queue records --------
+# Same field shapes as the channel traces: send `ok|err; <queued>`; deliver
+#   `ok; <payload>; <queued>` or `err; ; <queued>`; take `some; <payload>; <queued>` or
+#   `none; ; <queued>`. wire and in_flight are private and are not recorded.
+# stuffed_channel.ringbuffer.*: StuffedChannel::new over the extracted
+#   RingBuffer<Vec<u8>> record.
+stuffed_channel.ringbuffer.new 2 => 0
+stuffed_channel.ringbuffer.deliver => err; ; 0
+stuffed_channel.ringbuffer.send 111 110 101 => ok; 0
+stuffed_channel.ringbuffer.send 116 119 111 => ok; 0
+stuffed_channel.ringbuffer.send 116 104 114 101 101 => err; 0
+stuffed_channel.ringbuffer.deliver => ok; 111 110 101; 1
+stuffed_channel.ringbuffer.deliver => ok; 116 119 111; 2
+stuffed_channel.ringbuffer.deliver => err; ; 2
+stuffed_channel.ringbuffer.take => some; 111 110 101; 1
+stuffed_channel.ringbuffer.take => some; 116 119 111; 0
+stuffed_channel.ringbuffer.take => none; ; 0
+stuffed_channel.ringbuffer.send 116 104 114 101 101 => ok; 0
+stuffed_channel.ringbuffer.deliver => ok; 116 104 114 101 101; 1
+stuffed_channel.ringbuffer.take => some; 116 104 114 101 101; 0
+stuffed_channel.ringbuffer.new 4 => 0
+stuffed_channel.ringbuffer.send => ok; 0
+stuffed_channel.ringbuffer.deliver => ok; ; 1
+stuffed_channel.ringbuffer.take => some; ; 0
+stuffed_channel.ringbuffer.send 97 => ok; 0
+stuffed_channel.ringbuffer.deliver => ok; 97; 1
+stuffed_channel.ringbuffer.take => some; 97; 0
+stuffed_channel.ringbuffer.send 104 101 108 108 111 => ok; 0
+stuffed_channel.ringbuffer.deliver => ok; 104 101 108 108 111; 1
+stuffed_channel.ringbuffer.take => some; 104 101 108 108 111; 0
+stuffed_channel.ringbuffer.send 126 126 126 => ok; 0
+stuffed_channel.ringbuffer.deliver => ok; 126 126 126; 1
+stuffed_channel.ringbuffer.take => some; 126 126 126; 0
+stuffed_channel.ringbuffer.send 125 125 => ok; 0
+stuffed_channel.ringbuffer.deliver => ok; 125 125; 1
+stuffed_channel.ringbuffer.take => some; 125 125; 0
+stuffed_channel.ringbuffer.send 126 125 0 126 => ok; 0
+stuffed_channel.ringbuffer.deliver => ok; 126 125 0 126; 1
+stuffed_channel.ringbuffer.take => some; 126 125 0 126; 0
+stuffed_channel.ringbuffer.send 102 114 97 109 101 100 95 99 104 97 110 110 101 108 => ok; 0
+stuffed_channel.ringbuffer.deliver => ok; 102 114 97 109 101 100 95 99 104 97 110 110 101 108; 1
+stuffed_channel.ringbuffer.take => some; 102 114 97 109 101 100 95 99 104 97 110 110 101 108; 0
+stuffed_channel.ringbuffer.new 2 => 0
+stuffed_channel.ringbuffer.send 0 1 2 3 4 5 6 7 8 9 126 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99 100 101 102 103 104 105 106 107 108 109 110 111 112 113 114 115 116 117 118 119 120 121 122 123 124 125 => ok; 0
+stuffed_channel.ringbuffer.send 120 => ok; 0
+stuffed_channel.ringbuffer.deliver => ok; 0 1 2 3 4 5 6 7 8 9 126 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99 100 101 102 103 104 105 106 107 108 109 110 111 112 113 114 115 116 117 118 119 120 121 122 123 124 125; 1
+stuffed_channel.ringbuffer.deliver => ok; 120; 2
+stuffed_channel.ringbuffer.take => some; 0 1 2 3 4 5 6 7 8 9 126 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99 100 101 102 103 104 105 106 107 108 109 110 111 112 113 114 115 116 117 118 119 120 121 122 123 124 125; 1
+stuffed_channel.ringbuffer.take => some; 120; 0
+stuffed_channel.ringbuffer.take => none; ; 0
+# stuffed_channel.vecqueue.*: StuffedChannel::with_queue over the extracted
+#   VecQueue<Vec<u8>> record.
+stuffed_channel.vecqueue.new 2 => 0
+stuffed_channel.vecqueue.deliver => err; ; 0
+stuffed_channel.vecqueue.send 111 110 101 => ok; 0
+stuffed_channel.vecqueue.send 116 119 111 => ok; 0
+stuffed_channel.vecqueue.send 116 104 114 101 101 => err; 0
+stuffed_channel.vecqueue.deliver => ok; 111 110 101; 1
+stuffed_channel.vecqueue.deliver => ok; 116 119 111; 2
+stuffed_channel.vecqueue.deliver => err; ; 2
+stuffed_channel.vecqueue.take => some; 111 110 101; 1
+stuffed_channel.vecqueue.take => some; 116 119 111; 0
+stuffed_channel.vecqueue.take => none; ; 0
+stuffed_channel.vecqueue.send 116 104 114 101 101 => ok; 0
+stuffed_channel.vecqueue.deliver => ok; 116 104 114 101 101; 1
+stuffed_channel.vecqueue.take => some; 116 104 114 101 101; 0
+stuffed_channel.vecqueue.new 4 => 0
+stuffed_channel.vecqueue.send => ok; 0
+stuffed_channel.vecqueue.deliver => ok; ; 1
+stuffed_channel.vecqueue.take => some; ; 0
+stuffed_channel.vecqueue.send 97 => ok; 0
+stuffed_channel.vecqueue.deliver => ok; 97; 1
+stuffed_channel.vecqueue.take => some; 97; 0
+stuffed_channel.vecqueue.send 104 101 108 108 111 => ok; 0
+stuffed_channel.vecqueue.deliver => ok; 104 101 108 108 111; 1
+stuffed_channel.vecqueue.take => some; 104 101 108 108 111; 0
+stuffed_channel.vecqueue.send 126 126 126 => ok; 0
+stuffed_channel.vecqueue.deliver => ok; 126 126 126; 1
+stuffed_channel.vecqueue.take => some; 126 126 126; 0
+stuffed_channel.vecqueue.send 125 125 => ok; 0
+stuffed_channel.vecqueue.deliver => ok; 125 125; 1
+stuffed_channel.vecqueue.take => some; 125 125; 0
+stuffed_channel.vecqueue.send 126 125 0 126 => ok; 0
+stuffed_channel.vecqueue.deliver => ok; 126 125 0 126; 1
+stuffed_channel.vecqueue.take => some; 126 125 0 126; 0
+stuffed_channel.vecqueue.send 102 114 97 109 101 100 95 99 104 97 110 110 101 108 => ok; 0
+stuffed_channel.vecqueue.deliver => ok; 102 114 97 109 101 100 95 99 104 97 110 110 101 108; 1
+stuffed_channel.vecqueue.take => some; 102 114 97 109 101 100 95 99 104 97 110 110 101 108; 0
+stuffed_channel.vecqueue.new 2 => 0
+stuffed_channel.vecqueue.send 0 1 2 3 4 5 6 7 8 9 126 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99 100 101 102 103 104 105 106 107 108 109 110 111 112 113 114 115 116 117 118 119 120 121 122 123 124 125 => ok; 0
+stuffed_channel.vecqueue.send 120 => ok; 0
+stuffed_channel.vecqueue.deliver => ok; 0 1 2 3 4 5 6 7 8 9 126 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99 100 101 102 103 104 105 106 107 108 109 110 111 112 113 114 115 116 117 118 119 120 121 122 123 124 125; 1
+stuffed_channel.vecqueue.deliver => ok; 120; 2
+stuffed_channel.vecqueue.take => some; 0 1 2 3 4 5 6 7 8 9 126 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79 80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95 96 97 98 99 100 101 102 103 104 105 106 107 108 109 110 111 112 113 114 115 116 117 118 119 120 121 122 123 124 125; 1
+stuffed_channel.vecqueue.take => some; 120; 0
+stuffed_channel.vecqueue.take => none; ; 0

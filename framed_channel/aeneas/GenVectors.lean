@@ -492,6 +492,132 @@ def chTraces {S : Type} (pfx : String) (inst : queue.BoundedQueue S FrameVec)
   chTrace pfx inst mk 2 chTraceCapacity ++ chTrace pfx inst mk 4 chTraceRoundTrip
     ++ chTrace pfx inst mk 2 chTrace126
 
+/-! ## StuffedChannel: the transparent composite -/
+
+/-- The extracted `encode_stuffed` of a payload into an empty vector, as naturals. -/
+def encodeStuffedBytes (p : List Nat) : List Nat :=
+  match (stuffed_channel.encode_stuffed (sliceOf p) (u32 p.length)
+      (alloc.vec.Vec.new Std.U8)).match with
+  | .ok v => v.val.map (·.val)
+  | _ => []
+
+def parseStuffedRec (w : List Nat) : String :=
+  mkRec (mkLhs "stuffed_channel.parse_stuffed" (natsToStr w))
+    (fields (stuffed_channel.parse_stuffed (sliceOf w)) fun o =>
+      match o with
+      | some (v, used) => ["some", u8sToStr v.val, toString used.val]
+      | none => ["none"])
+
+/-- Bump the byte before the terminating flag: the last byte of the stuffed body, which is the check
+byte or the second half of its escape sequence. -/
+def bumpSecondLast (w : List Nat) : List Nat :=
+  match w.reverse with
+  | flag :: b :: rest => rest.reverse ++ [(b + 1) % 256, flag]
+  | _ => w
+
+/-- For one payload: the stuffed frame, the parse of that frame, the parse with a trailing byte (the
+consumed count stops at the terminating flag), one byte short, and the frame with the byte before the
+flag bumped.
+
+No record for the extracted `body`: it is a private Rust function, so `differential.rs` cannot call
+it without widening the crate's API for a test's sake, and a vector nothing consumes is exactly the
+silent gap `extracted_vectors_cover_every_translated_operation` exists to prevent. The channel's
+private `drop_front` has no records either, for the same reason. `body` is covered by the bridge
+instead, by `Bridge.stuffed_channel.body_refines`. -/
+def stuffedCodecRecs (p : List Nat) : List String :=
+  let w := encodeStuffedBytes p
+  [ mkRec (mkLhs "stuffed_channel.encode_stuffed" (natsToStr p))
+      (fields (stuffed_channel.encode_stuffed (sliceOf p) (u32 p.length)
+        (alloc.vec.Vec.new Std.U8)) fun v => [u8sToStr v.val])
+  , parseStuffedRec w
+  , parseStuffedRec (w ++ [99])
+  , parseStuffedRec (w.take (w.length - 1))
+  , parseStuffedRec (bumpSecondLast w) ]
+
+inductive SCOp where
+  | send (p : List Nat)
+  | deliver
+  | take
+
+def scStep {S : Type} (pfx : String) (inst : queue.BoundedQueue S FrameVec)
+    (c : stuffed_channel.StuffedChannel S) (op : SCOp) :
+    String × stuffed_channel.StuffedChannel S :=
+  match op with
+  | .send p =>
+    let lhs := mkLhs s!"{pfx}.send" (natsToStr p)
+    let (fs, c') := stepWith c (do
+        let (r, c') ← stuffed_channel.StuffedChannel.send inst c (sliceOf p)
+        let n ← stuffed_channel.StuffedChannel.queued inst c'
+        ok (r, n, c'))
+      fun (r, n, c') => ([(match r with | .Ok _ => "ok" | .Err _ => "err"), toString n.val], c')
+    (mkRec lhs fs, c')
+  | .deliver =>
+    let (fs, c') := stepWith c (do
+        let (r, c') ← stuffed_channel.StuffedChannel.deliver inst c
+        let n ← stuffed_channel.StuffedChannel.queued inst c'
+        ok (r, n, c'))
+      fun (r, n, c') =>
+        ((match r with
+          | .Ok v => ["ok", u8sToStr v.val, toString n.val]
+          | .Err _ => ["err", "", toString n.val]), c')
+    (mkRec s!"{pfx}.deliver" fs, c')
+  | .take =>
+    let (fs, c') := stepWith c (do
+        let (o, c') ← stuffed_channel.StuffedChannel.take inst c
+        let n ← stuffed_channel.StuffedChannel.queued inst c'
+        ok (o, n, c'))
+      fun (o, n, c') =>
+        ((match o with
+          | some v => ["some", u8sToStr v.val, toString n.val]
+          | none => ["none", "", toString n.val]), c')
+    (mkRec s!"{pfx}.take" fs, c')
+
+def scTrace {S : Type} (pfx : String) (inst : queue.BoundedQueue S FrameVec)
+    (mk : Std.Usize → Result (stuffed_channel.StuffedChannel S)) (cap : Nat) (ops : List SCOp) :
+    List String :=
+  let lhs := s!"{pfx}.new {cap}"
+  match (do
+      let c ← mk (usize cap)
+      let n ← stuffed_channel.StuffedChannel.queued inst c
+      ok (c, n)).match with
+  | .ok (c, n) => mkRec lhs [toString n.val] :: runOps (scStep pfx inst) c ops
+  | .div => [mkRec lhs ["div"]]
+  | .vis (.fail e) _ => [mkRec lhs [s!"panic {repr e}"]]
+
+/-- The capacity refusal and the empty-wire `deliver` failure, in one trace. -/
+def scTraceCapacity : List SCOp :=
+  [ .deliver
+  , .send (asciiBytes "one"), .send (asciiBytes "two")
+  , .send (asciiBytes "three")
+  , .deliver, .deliver
+  , .deliver
+  , .take, .take, .take
+  , .send (asciiBytes "three"), .deliver, .take ]
+
+/-- One send/deliver/take round per payload: the empty payload, plain payloads, the flag byte, the
+escape byte, and both reserved bytes together -- the cases stuffing exists for. -/
+def scTraceRoundTrip : List SCOp :=
+  [ .send [], .deliver, .take
+  , .send (asciiBytes "a"), .deliver, .take
+  , .send (asciiBytes "hello"), .deliver, .take
+  , .send [126, 126, 126], .deliver, .take
+  , .send [125, 125], .deliver, .take
+  , .send [126, 125, 0, 126], .deliver, .take
+  , .send (asciiBytes "framed_channel"), .deliver, .take ]
+
+/-- The 126-byte payload whose varint length byte is the flag, with a flag byte inside it too: under
+stuffing both are escaped, so the wire carries the flag only as the terminator. Interleaved with a
+second frame, so the residual wire is exercised. -/
+def scTrace126 : List SCOp :=
+  [ .send payload126, .send (asciiBytes "x")
+  , .deliver, .deliver
+  , .take, .take, .take ]
+
+def scTraces {S : Type} (pfx : String) (inst : queue.BoundedQueue S FrameVec)
+    (mk : Std.Usize → Result (stuffed_channel.StuffedChannel S)) : List String :=
+  scTrace pfx inst mk 2 scTraceCapacity ++ scTrace pfx inst mk 4 scTraceRoundTrip
+    ++ scTrace pfx inst mk 2 scTrace126
+
 /-! ## Header and sections -/
 
 /-- The pinned Aeneas revision, read from `lakefile.toml` in the working directory (the generator
@@ -609,9 +735,35 @@ def channelSection : List String :=
     ++ [ "# channel.vecqueue.*: Channel::with_queue over the extracted VecQueue<Vec<u8>> record." ]
     ++ chTraces "channel.vecqueue" vqFrameRecord (channel.Channel.with_queue vqFrameRecord)
 
+def stuffedChannelSection : List String :=
+  [ "# ---- StuffedChannel: the extracted transparent frame codec -----------------------"
+  , "# The transparent counterpart of the channel codec. Per payload: the stuffed frame its body"
+  , "#   (varint length, payload, check byte) becomes, the parse of that frame, its parse with a"
+  , "#   trailing byte, one byte short, and the frame with the byte before the terminating flag"
+  , "#   bumped. parse_stuffed records carry `some; <payload>; <consumed>` or `none`, and the"
+  , "#   consumed count includes the terminating flag."
+  , "# The private `body` and `drop_front` carry no records: differential.rs cannot call a private"
+  , "#   function, and a vector nothing consumes is the gap the coverage census exists to prevent."
+  , "# Note what the encode_stuffed records show and the channel's encode_frame records cannot: the"
+  , "#   flag byte 126 appears in a stuffed frame ONLY as its last byte."
+  ] ++ [[], asciiBytes "hi", asciiBytes "framed_channel", [126, 126, 126], [125, 125],
+        payload126].flatMap stuffedCodecRecs
+    ++ [ "# ---- StuffedChannel<Q>: the extracted state machine at both queue records --------"
+       , "# Same field shapes as the channel traces: send `ok|err; <queued>`; deliver"
+       , "#   `ok; <payload>; <queued>` or `err; ; <queued>`; take `some; <payload>; <queued>` or"
+       , "#   `none; ; <queued>`. wire and in_flight are private and are not recorded."
+       , "# stuffed_channel.ringbuffer.*: StuffedChannel::new over the extracted"
+       , "#   RingBuffer<Vec<u8>> record."
+       ] ++ scTraces "stuffed_channel.ringbuffer" rbFrameRecord
+              stuffed_channel.StuffedChannelRingBufferVecU8.new
+    ++ [ "# stuffed_channel.vecqueue.*: StuffedChannel::with_queue over the extracted"
+       , "#   VecQueue<Vec<u8>> record." ]
+    ++ scTraces "stuffed_channel.vecqueue" vqFrameRecord
+         (stuffed_channel.StuffedChannel.with_queue vqFrameRecord)
+
 def output (rev : String) : List String :=
   header rev ++ queueSection ++ varintSection ++ zigzagSection ++ stuffSection
-    ++ crc8Section ++ seqNumSection ++ channelSection
+    ++ crc8Section ++ seqNumSection ++ channelSection ++ stuffedChannelSection
 
 end GenVectors
 
