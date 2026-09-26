@@ -618,6 +618,110 @@ def scTraces {S : Type} (pfx : String) (inst : queue.BoundedQueue S FrameVec)
   scTrace pfx inst mk 2 scTraceCapacity ++ scTrace pfx inst mk 4 scTraceRoundTrip
     ++ scTrace pfx inst mk 2 scTrace126
 
+/-! ## Receiver: the extracted resynchronizing receive path -/
+
+inductive RcvOp where
+  | feed (bs : List Nat)
+  | poll
+
+/-- One receiver step. A `feed` record carries the drop count and the queued count after the feed;
+a `poll` record carries the popped frame (or `none`) and both counters. `dropped` and `queued` are
+recorded as fields of every step rather than as records of their own, exactly as the channel traces
+record `queued`: they are observers, and a record nothing advances would test nothing. -/
+def rcvStep {S : Type} (pfx : String) (inst : queue.BoundedQueue S FrameVec)
+    (c : receiver.Receiver S) (op : RcvOp) : String × receiver.Receiver S :=
+  match op with
+  | .feed bs =>
+    let (fs, c') := stepWith c (do
+        let c' ← receiver.Receiver.feed inst c (sliceOf bs)
+        let d ← receiver.Receiver.impl.dropped inst c'
+        let n ← receiver.Receiver.queued inst c'
+        ok (d, n, c'))
+      fun (d, n, c') => ([toString d.val, toString n.val], c')
+    (mkRec (mkLhs s!"{pfx}.feed" (natsToStr bs)) fs, c')
+  | .poll =>
+    let (fs, c') := stepWith c (do
+        let (o, c') ← receiver.Receiver.poll inst c
+        let d ← receiver.Receiver.impl.dropped inst c'
+        let n ← receiver.Receiver.queued inst c'
+        ok (o, d, n, c'))
+      fun (o, d, n, c') =>
+        ((match o with
+          | some v => ["some", u8sToStr v.val, toString d.val, toString n.val]
+          | none => ["none", "", toString d.val, toString n.val]), c')
+    (mkRec s!"{pfx}.poll" fs, c')
+
+def rcvTrace {S : Type} (pfx : String) (inst : queue.BoundedQueue S FrameVec)
+    (mk : Std.Usize → Result (receiver.Receiver S)) (cap : Nat) (ops : List RcvOp) : List String :=
+  let lhs := s!"{pfx}.new {cap}"
+  match (do
+      let c ← mk (usize cap)
+      let d ← receiver.Receiver.impl.dropped inst c
+      let n ← receiver.Receiver.queued inst c
+      ok (c, d, n)).match with
+  | .ok (c, d, n) => mkRec lhs [toString d.val, toString n.val] :: runOps (rcvStep pfx inst) c ops
+  | .div => [mkRec lhs ["div"]]
+  | .vis (.fail e) _ => [mkRec lhs [s!"panic {repr e}"]]
+
+/-- A clean stream: two frames in one feed, then the same two frames fed one byte at a time, which is
+chunking invariance (`Receiver.feed_append`) made visible in the vectors. Order preservation is what
+the two `poll`s after each show. -/
+def rcvTraceClean : List RcvOp :=
+  [ .feed (encodeStuffedBytes (asciiBytes "hi") ++ encodeStuffedBytes (asciiBytes "there"))
+  , .poll, .poll, .poll ]
+    ++ (encodeStuffedBytes (asciiBytes "hi") ++ encodeStuffedBytes (asciiBytes "there")).map
+        (fun b => RcvOp.feed [b])
+    ++ [ .poll, .poll, .poll ]
+
+/-- The payloads stuffing exists for, each fed as a whole frame: the flag byte three times over, the
+escape byte twice, both reserved bytes together, the empty payload (whose frame is a body and a
+flag), and the 126-byte payload whose varint length byte is itself the flag. Every one is accepted,
+and `dropped` stays 0 throughout -- that is the transparency claim exercised at the receive path. -/
+def rcvTraceReserved : List RcvOp :=
+  [ .feed (encodeStuffedBytes [126, 126, 126]), .poll
+  , .feed (encodeStuffedBytes [125, 125]), .poll
+  , .feed (encodeStuffedBytes [126, 125, 0, 126]), .poll
+  , .feed (encodeStuffedBytes []), .poll
+  , .feed (encodeStuffedBytes payload126), .poll ]
+
+/-- Corruption and truncation, the cases this unit exists for.
+
+* a frame whose check byte is bumped: one drop, nothing accepted, and the receiver keeps going;
+* a truncated (unterminated) frame: nothing is dropped and nothing is accepted, because the run stays
+  buffered -- then the NEXT frame's leading flag closes that fused run as one drop and the frame that
+  follows it is lost. That is why Decision 3's resync-progress law needs its flag-terminated
+  qualifier, and it is recorded here rather than argued;
+* adjacent flags: RFC 1662 4.1's idle case. Two, then three in a row: no drop, no acceptance;
+* a garbage prefix that IS flag-terminated: the garbage is one drop and the frame after it is
+  accepted (resync progress);
+* a garbage prefix that is NOT flag-terminated: it fuses with the following frame's body, so that
+  frame is lost -- one drop, nothing accepted. The pair is the law's qualifier, shown. -/
+def rcvTraceResync : List RcvOp :=
+  [ .feed (bumpSecondLast (encodeStuffedBytes (asciiBytes "hello"))), .poll
+  , .feed ((encodeStuffedBytes (asciiBytes "hello")).take
+      ((encodeStuffedBytes (asciiBytes "hello")).length - 1))
+  , .poll
+  , .feed (encodeStuffedBytes (asciiBytes "lost")), .poll
+  , .feed [126, 126], .poll
+  , .feed [126, 126, 126], .poll
+  , .feed ([3, 4, 5, 126] ++ encodeStuffedBytes (asciiBytes "after")), .poll, .poll
+  , .feed ([3, 4, 5] ++ encodeStuffedBytes (asciiBytes "fused")), .poll ]
+
+/-- The full-queue refusal, at capacity 1: two frames in one feed, the second refused by the queue
+and counted as a drop exactly as a malformed run is (`Receiver.run_exactly_one` is what that keeps
+unconditional). Then a poll drains the queue and a third frame is accepted, so the refusal is shown
+not to wedge the receiver. -/
+def rcvTraceFull : List RcvOp :=
+  [ .feed (encodeStuffedBytes (asciiBytes "first") ++ encodeStuffedBytes (asciiBytes "second"))
+  , .poll, .poll
+  , .feed (encodeStuffedBytes (asciiBytes "third"))
+  , .poll, .poll ]
+
+def rcvTraces {S : Type} (pfx : String) (inst : queue.BoundedQueue S FrameVec)
+    (mk : Std.Usize → Result (receiver.Receiver S)) : List String :=
+  rcvTrace pfx inst mk 4 rcvTraceClean ++ rcvTrace pfx inst mk 4 rcvTraceReserved
+    ++ rcvTrace pfx inst mk 4 rcvTraceResync ++ rcvTrace pfx inst mk 1 rcvTraceFull
+
 /-! ## Header and sections -/
 
 /-- The pinned Aeneas revision, read from `lakefile.toml` in the working directory (the generator
@@ -761,9 +865,25 @@ def stuffedChannelSection : List String :=
     ++ scTraces "stuffed_channel.vecqueue" vqFrameRecord
          (stuffed_channel.StuffedChannel.with_queue vqFrameRecord)
 
+def receiverSection : List String :=
+  [ "# ---- Receiver: the extracted resynchronizing receive path ------------------------"
+  , "# feed: `<dropped>; <queued>` after the feed; poll: `some; <payload>; <dropped>; <queued>` or"
+  , "#   `none; ; <dropped>; <queued>`. buf is private on the Rust side and is not recorded."
+  , "# The private `finish_run` carries no records: differential.rs cannot call a private function,"
+  , "#   and a vector nothing consumes is the gap the coverage census exists to prevent. It is"
+  , "#   covered instead by its bridge row, Bridge.receiver.finish_run_refines -- the same reasoning"
+  , "#   the transparent channel's `body` and the channel's `drop_front` already carry."
+  , "# The wires here are not all well-formed, which is the point: corrupted check bytes, truncated"
+  , "#   frames, adjacent flags, and a garbage prefix both with and without its terminating flag."
+  , "# receiver.ringbuffer.*: Receiver::new over the extracted RingBuffer<Vec<u8>> record."
+  ] ++ rcvTraces "receiver.ringbuffer" rbFrameRecord receiver.ReceiverRingBufferVecU8.new
+    ++ [ "# receiver.vecqueue.*: Receiver::with_queue over the extracted VecQueue<Vec<u8>> record." ]
+    ++ rcvTraces "receiver.vecqueue" vqFrameRecord (receiver.Receiver.with_queue vqFrameRecord)
+
 def output (rev : String) : List String :=
   header rev ++ queueSection ++ varintSection ++ zigzagSection ++ stuffSection
     ++ crc8Section ++ seqNumSection ++ channelSection ++ stuffedChannelSection
+    ++ receiverSection
 
 end GenVectors
 

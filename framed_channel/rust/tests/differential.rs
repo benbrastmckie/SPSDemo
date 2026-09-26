@@ -1112,6 +1112,92 @@ fn stuffed_channel_agrees_with_extracted_vectors_vec_queue() {
     inputs.report();
 }
 
+/// The receive path against its own extracted translation, over one queue record. `feed` records
+/// carry the drop and queued counts after the feed, `poll` records the popped frame and both counts,
+/// so every observer the extraction exposes is compared at every step. The private `finish_run` has
+/// no records and cannot: a test cannot call it without widening the crate's API, and it is covered
+/// by its bridge row (`Bridge.receiver.finish_run_refines`) instead.
+fn receiver_agrees_with_extracted_vectors_at<Q: BoundedQueue<Frame>>(
+    prefix: &str,
+    new: fn(usize) -> Receiver<Q>,
+    inputs: &mut Inputs,
+) {
+    let records = parse_vectors();
+    let mut rcv: Receiver<Q> = new(1);
+    let mut started = false;
+    let before = inputs.count;
+    for r in &records {
+        let Some(op) = r.op.strip_prefix(prefix) else {
+            continue;
+        };
+        match op {
+            ".new" => {
+                rcv = new(one_u32(&r.args) as usize);
+                started = true;
+                inputs.saw();
+                assert_eq!(rcv.dropped(), one_usize(r.field(0)), "dropped disagrees at new");
+                assert_eq!(rcv.queued(), one_usize(r.field(1)), "queued disagrees at new");
+            }
+            ".feed" => {
+                assert!(started, "vectors.txt: a feed record before any .new for {prefix}");
+                inputs.saw();
+                rcv.feed(&u8s(&r.args));
+                assert_eq!(rcv.dropped(), one_usize(r.field(0)), "dropped disagrees after feed");
+                assert_eq!(rcv.queued(), one_usize(r.field(1)), "queued disagrees after feed");
+            }
+            ".poll" => {
+                assert!(started, "vectors.txt: a poll record before any .new for {prefix}");
+                inputs.saw();
+                let got = rcv.poll();
+                match r.status(0) {
+                    "some" => assert_eq!(got, Some(u8s(r.field(1))), "poll payload disagrees"),
+                    "none" => assert_eq!(got, None, "poll should have returned None"),
+                    other => panic!("vectors.txt: unexpected poll result {other}"),
+                }
+                assert_eq!(rcv.dropped(), one_usize(r.field(2)), "dropped disagrees after poll");
+                assert_eq!(rcv.queued(), one_usize(r.field(3)), "queued disagrees after poll");
+            }
+            _ => {}
+        }
+    }
+    assert!(inputs.count > before, "vectors.txt carries no receiver records for {prefix}");
+}
+
+fn new_ring_buffer_receiver(cap: usize) -> Receiver<RingBuffer<Frame>> {
+    Receiver::new(cap)
+}
+
+fn new_vec_queue_receiver(cap: usize) -> Receiver<VecQueue<Frame>> {
+    Receiver::with_queue(cap)
+}
+
+/// `Receiver::new` (the ring buffer receiver) against its own extracted translation. The wires the
+/// vectors feed are deliberately not all well formed: a bumped check byte, a truncated frame, the
+/// fused run the next flag closes, adjacent flags (RFC 1662 4.1's idle case), a garbage prefix both
+/// with and without its terminating flag, and a full-queue refusal at capacity 1.
+#[test]
+fn receiver_agrees_with_extracted_vectors() {
+    let mut inputs = Inputs::new("receiver_agrees_with_extracted_vectors");
+    receiver_agrees_with_extracted_vectors_at(
+        "receiver.ringbuffer",
+        new_ring_buffer_receiver,
+        &mut inputs,
+    );
+    inputs.report();
+}
+
+/// `Receiver::with_queue` at `VecQueue<Frame>` against its own extracted translation.
+#[test]
+fn receiver_agrees_with_extracted_vectors_vec_queue() {
+    let mut inputs = Inputs::new("receiver_agrees_with_extracted_vectors_vec_queue");
+    receiver_agrees_with_extracted_vectors_at(
+        "receiver.vecqueue",
+        new_vec_queue_receiver,
+        &mut inputs,
+    );
+    inputs.report();
+}
+
 /// One stuffed frame's wire bytes, flag terminator included.
 fn stuffed_wire(payload: &[u8]) -> Vec<u8> {
     let mut w: Vec<u8> = Vec::new();
@@ -1442,7 +1528,7 @@ fn extracted_vectors_cover_every_translated_operation() {
     let mut inputs = Inputs::new("extracted_vectors_cover_every_translated_operation");
     let records = parse_vectors();
     #[rustfmt::skip]
-    let branches: [(&str, &str, &str); 46] = [
+    let branches: [(&str, &str, &str); 50] = [
         ("ringbuffer.push", "ok", ""), ("ringbuffer.push", "err", ""),
         ("ringbuffer.pop", "some", ""), ("ringbuffer.pop", "none", ""),
         ("vecqueue.push", "ok", ""), ("vecqueue.push", "err", ""),
@@ -1468,6 +1554,8 @@ fn extracted_vectors_cover_every_translated_operation() {
         ("stuffed_channel.vecqueue.send", "ok", ""), ("stuffed_channel.vecqueue.send", "err", ""),
         ("stuffed_channel.vecqueue.deliver", "ok", ""), ("stuffed_channel.vecqueue.deliver", "err", ""),
         ("stuffed_channel.vecqueue.take", "some", ""), ("stuffed_channel.vecqueue.take", "none", ""),
+        ("receiver.ringbuffer.poll", "some", ""), ("receiver.ringbuffer.poll", "none", ""),
+        ("receiver.vecqueue.poll", "some", ""), ("receiver.vecqueue.poll", "none", ""),
     ];
     for (op, status, detail) in branches {
         inputs.saw();
@@ -1477,7 +1565,7 @@ fn extracted_vectors_cover_every_translated_operation() {
         );
     }
     #[rustfmt::skip]
-    let total: [&str; 22] = [
+    let total: [&str; 26] = [
         "ringbuffer.new", "vecqueue.new", "channel.ringbuffer.new", "channel.vecqueue.new",
         "varint.encode", "crc8.bits", "crc8.table", "channel.encode_frame",
         "stuff.stuff", "stuff.encode_frame",
@@ -1485,6 +1573,8 @@ fn extracted_vectors_cover_every_translated_operation() {
         "seq_num.new", "seq_num.get", "seq_num.succ", "seq_num.add", "seq_num.dist", "seq_num.lt",
         "stuffed_channel.encode_stuffed",
         "stuffed_channel.ringbuffer.new", "stuffed_channel.vecqueue.new",
+        "receiver.ringbuffer.new", "receiver.vecqueue.new",
+        "receiver.ringbuffer.feed", "receiver.vecqueue.feed",
     ];
     for op in total {
         inputs.saw();
