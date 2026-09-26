@@ -5,6 +5,8 @@ import FramedChannel.Model.Zigzag.Theorems
 import FramedChannel.Model.SeqNum.Theorems
 import FramedChannel.Model.Stuff.Theorems
 import FramedChannel.Composition.Channel.Theorems
+import FramedChannel.Composition.Receiver.Defs
+import FramedChannel.Model.VecQueue.Defs
 
 /-!
 # Evidence/Countermodels: rejected candidate statements, refuted in the kernel
@@ -364,6 +366,141 @@ theorem channel_wire_marker_free_false : ¬ channel_wire_marker_free :=
 -- `awk '{ print $2, $3, $4 }'`, so a record wrapped across two lines loses its search theorem.
 refuted% channel_wire_marker_free channel_wire_marker_free_false search_channel_wire_marker_free
 
+/-! ## 13. A receiver that scans to the next flag is not sound over UNSTUFFED framing
+
+The load-bearing negative result of `Composition/Receiver/`. The receive path of
+`rust/src/receiver.rs` accepts arbitrary bytes, scans forward to the next flag, and hands the run it
+found to `StuffedChannel.parseStuffed`. That is sound *because* a stuffed body is marker-free, so a
+flag on the wire is unambiguously a frame boundary and never payload data. Point the very same
+receiver at a wire the **unstuffed** `Channel.encodeFrame` wrote and it accepts a frame that was
+never sent: a payload byte equal to the flag closes a run early, and what remains happens to parse.
+
+The witness is the payload `[0x12, 0x7E, 0x00]`, whose `Channel` wire is
+`[126, 3, 18, 126, 0, 0, 126]`. The receiver reads `[3, 18]` as its first run (dropping it, since it
+is not a well-formed stuffed frame) and then `[0, 0]` as its second -- a declared length of zero and
+a check byte of zero, which is exactly the **empty frame**, well-formed and accepted. One frame
+accepted that the sender never wrote, and one run dropped.
+
+Note the shape the wire must have, because it is not obvious: the trailing flag is **required**. A
+single `Channel` frame's final run is never flag-terminated, so it stays buffered and the candidate
+is not refutable without it; the wire therefore carries the next frame's leading flag.
+
+Two neighbouring statements it is worth not confusing with this one:
+
+* Block 3's `parseFrameResync_roundtrip` quantifies over a hypothetical receiver's **round trip**,
+  its witness is the length `126`, and its mechanism is a *varint length* byte colliding with the
+  flag. This candidate quantifies over what a real receiver **accepts**, its witness is a payload,
+  and its mechanism is a *payload* byte opening a run that happens to parse.
+* Block 12's `channel_wire_marker_free` quantifies over the **encoder's output**, and is refuted at
+  the payload `[marker]`. This candidate is about the receiver's acceptance, not the encoder's
+  bytes. -/
+
+/-- The queue the two receiver candidates below use: the list-backed model, so the searches are
+kernel `decide`s. -/
+abbrev RcvQ := VecQueue.VQ Frame
+
+/-- A fresh receiver with room for eight frames. -/
+def rcvIdle : Receiver.Rcv RcvQ := { out := { items := [], cap := 8 }, buf := [], dropped := 0 }
+
+/-- The canonical receiver's `feed`: HDLC stuffing, bitwise CRC-8, the HDLC flag. -/
+abbrev rcvFeed (c : Receiver.Rcv RcvQ) (w : List Nat) : Receiver.Rcv RcvQ :=
+  Receiver.feed (C := Stuff.Hdlc) (K := Crc8.Bitwise) (E := Frame) Stuff.marker c w
+
+/-- The accepted-frame observation at that model. -/
+abbrev rcvAccepted (c : Receiver.Rcv RcvQ) : List Frame :=
+  Receiver.accepted (Q := RcvQ) (E := Frame) c
+
+/-- The sender's canonical wire for one frame, at the same codec and checksum. -/
+abbrev rcvEnc (p : Frame) : List Nat :=
+  StuffedChannel.encodeStuffed (C := Stuff.Hdlc) (K := Crc8.Bitwise) p
+
+/-- `e` occurs contiguously in `w`. A `Bool` test rather than `∃ pre suf, w = pre ++ e ++ suf`, so
+that block 14's search is a kernel `decide`. -/
+def occursIn (e w : List Nat) : Bool :=
+  (List.range (w.length + 1)).any fun i => (w.drop i).take e.length == e
+
+/-- One `Channel` frame on the wire, followed by the next frame's leading flag. The trailing flag is
+required: without it the frame's final run is never terminated and stays buffered. -/
+def unstuffedResyncWire (p : Frame) : List Nat :=
+  (encodeFrame p).map BitVec.toNat ++ [Stuff.marker]
+
+/-- The rejected candidate: over a wire the unstuffed `Channel` wrote, every frame the
+resynchronizing receiver accepts is the frame that was sent. -/
+def receiver_sound_unstuffed : Prop :=
+  ∀ p : Frame, FrameOK p → ∀ x ∈ rcvAccepted (rcvFeed rcvIdle (unstuffedResyncWire p)), x = p
+
+set_option maxRecDepth 100000 in
+/-- Over the payloads `[a, 0x7E, 0x00]` for `a < 256`, the first the receiver mis-reads is
+`[0x12, 0x7E, 0x00]`. Every smaller `a` fails too by the same mechanism -- the enumeration is what
+makes the witness read off a search rather than typed by hand. `[PROVED: kernel]` -/
+theorem search_receiver_sound_unstuffed :
+    ((List.range 256).map (fun a => [BitVec.ofNat 8 a, 0x7E#8, 0x00#8])).find?
+        (fun p => !decide (∀ x ∈ rcvAccepted (rcvFeed rcvIdle (unstuffedResyncWire p)), x = p))
+      = some [0x12#8, 0x7E#8, 0x00#8] := by
+  decide +kernel
+
+set_option maxRecDepth 100000 in
+/-- The frame accepted at that witness is the **empty** frame, which the sender never wrote.
+`FrameOK` has no `Decidable` instance, so it is unfolded before `decide`. `[PROVED: kernel]` -/
+theorem receiver_sound_unstuffed_false : ¬ receiver_sound_unstuffed :=
+  fun h => absurd (h [0x12#8, 0x7E#8, 0x00#8] (by unfold FrameOK; decide +kernel) []
+    (by decide +kernel)) (by decide +kernel)
+
+-- One line, deliberately: check.sh's proof-ladder stage reads a refuted% record with
+-- `awk '{ print $2, $3, $4 }'`, so a record wrapped across two lines loses its search theorem.
+refuted% receiver_sound_unstuffed receiver_sound_unstuffed_false search_receiver_sound_unstuffed
+
+/-! ## 14. Soundness in the CANONICAL-ENCODING form is false even over stuffed framing
+
+Stuffing makes the receive path sound (block 13 is the other half of that claim), but it does not
+make it sound in the strongest form one might reach for: that every accepted frame's own canonical
+encoding occurs on the wire that produced it. It does not, and the reason is that LEB128 length
+prefixes are **not canonical** -- in the model (`Varint.decode [0x81, 0x00] = .ok (1, [])` while
+`Varint.encode 1 = [1]`) nor in the Rust, whose `decode_u32` rejects only a prefix longer than five
+bytes or a fifth group above `0x0F`.
+
+At the wire `[129, 0, 0, 0, 126]` the receiver accepts `[0x00]`, a perfectly well-formed frame with
+a two-byte length prefix declaring one payload byte. Its canonical encoding is `[1, 0, 0, 126]`,
+which occurs nowhere in those five bytes.
+
+This is why `Receiver.accepted_sound` is stated with the witnessing **run** explicit, and why the
+payload-and-check form is the right weakening: the payload and check bytes, as the codec encodes
+them, ARE contiguous in that same wire (`[0, 0, 126]`, at offset 2). The qualifier on the soundness
+law is therefore *necessary* rather than defensive -- the same role `stuff_maxLen_unbounded` and
+`lt_total_cand` play for their laws' hypotheses.
+
+Distinct from block 13, which is about *unstuffed* framing and refutes soundness outright; this one
+holds the framing fixed at HDLC stuffing and refutes only the canonical-encoding strengthening. -/
+
+/-- A wire whose length prefix is the non-canonical two-byte LEB128 encoding of `1`: `0x81 0x00`,
+then one payload byte `a` and its check byte, stuffed and flag-terminated. -/
+def wideLengthWire (a : Nat) : List Nat :=
+  Stuff.stuff [0x81, 0x00, a, (Crc8.crc8Bits [BitVec.ofNat 8 a]).toNat] ++ [Stuff.marker]
+
+/-- The rejected candidate: every frame the receiver accepts has its own canonical encoding
+occurring contiguously in the wire that produced it. -/
+def receiver_accepted_canonical : Prop :=
+  ∀ w : List Nat, ∀ x ∈ rcvAccepted (rcvFeed rcvIdle w), occursIn (rcvEnc x) w = true
+
+set_option maxRecDepth 100000 in
+/-- Over the wide-length wires for `a < 256`, the first failure is `[129, 0, 0, 0, 126]`.
+`[PROVED: kernel]` -/
+theorem search_receiver_accepted_canonical :
+    ((List.range 256).map wideLengthWire).find?
+        (fun w => !decide (∀ x ∈ rcvAccepted (rcvFeed rcvIdle w), occursIn (rcvEnc x) w = true))
+      = some [129, 0, 0, 0, 126] := by
+  decide +kernel
+
+set_option maxRecDepth 100000 in
+/-- The frame accepted at that witness is `[0x00]`, whose canonical encoding `[1, 0, 0, 126]` is not
+a contiguous stretch of `[129, 0, 0, 0, 126]`. `[PROVED: kernel]` -/
+theorem receiver_accepted_canonical_false : ¬ receiver_accepted_canonical :=
+  fun h => absurd (h [129, 0, 0, 0, 126] [0x00#8] (by decide +kernel)) (by decide +kernel)
+
+-- One line, deliberately: check.sh's proof-ladder stage reads a refuted% record with
+-- `awk '{ print $2, $3, $4 }'`, so a record wrapped across two lines loses its search theorem.
+refuted% receiver_accepted_canonical receiver_accepted_canonical_false search_receiver_accepted_canonical
+
 #print axioms search_encode_length_le_unbounded
 #print axioms encode_length_le_unbounded_false
 #print axioms search_varint_roundtrip_unbounded
@@ -389,5 +526,9 @@ refuted% channel_wire_marker_free channel_wire_marker_free_false search_channel_
 #print axioms lt_total_cand_false
 #print axioms search_channel_wire_marker_free
 #print axioms channel_wire_marker_free_false
+#print axioms search_receiver_sound_unstuffed
+#print axioms receiver_sound_unstuffed_false
+#print axioms search_receiver_accepted_canonical
+#print axioms receiver_accepted_canonical_false
 
 end FramedChannel
