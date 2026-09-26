@@ -54,6 +54,13 @@ def u32 (n : Nat) : Std.U32 :=
 def usize (n : Nat) : Std.Usize :=
   if h : n ≤ Usize.max then UScalar.ofNatCore n (by simp; scalar_tac) else 0#usize
 
+/-- A machine `i32` from an `Int` inside the signed range. The `else` arm is unreachable for every
+input below and mirrors `usize`'s own total-function shape. -/
+def i32 (n : Int) : Std.I32 :=
+  if h : -2 ^ 31 ≤ n ∧ n < 2 ^ 31 then
+    IScalar.ofIntCore n (by simp only [IScalarTy.numBits]; omega)
+  else 0#i32
+
 def vecOf (ns : List Nat) : alloc.vec.Vec Std.U8 :=
   if h : ns.length ≤ Usize.max then alloc.vec.Vec.from (ns.map u8) (by simpa using h)
   else alloc.vec.Vec.new Std.U8
@@ -203,6 +210,46 @@ def varintOutOfDomainInputs : List (List Nat) :=
 
 def decodeFields (bs : List Nat) : List String :=
   fields (varint.decode_u32 (sliceOf bs)) fun r =>
+    match r with
+    | .Ok (v, k) => [s!"ok {v.val} {k.val}"]
+    | .Err .Truncated => ["err truncated"]
+    | .Err .Overlong => ["err overlong"]
+
+/-! ## Zigzag: the signed varint over `i32`
+
+The values cover zero, both signs either side of the one-byte and two-byte encoding boundaries, and
+both extremes of the range (`i32::MIN` and `i32::MAX`) -- the signed counterpart of
+`varintValues`. -/
+
+/-- Signed inputs: zero, both signs across each byte boundary, and both ends of the `i32` range. -/
+def zigzagValues : List Int :=
+  [0, -1, 1, -2, 63, -64, 64, -65, 8191, -8192, 8192, -8193, 2147483647, -2147483648]
+
+/-- The extracted `encode_i32` of `n` into an empty vector, as naturals (the empty list when the
+evaluation fails; that failure is recorded by the `zigzag.encode` record itself). -/
+def zigzagEncodeBytes (n : Int) : List Nat :=
+  match (zigzag.encode_i32 (i32 n) (alloc.vec.Vec.new Std.U8)).match with
+  | .ok v => v.val.map (·.val)
+  | _ => []
+
+/-- The extracted `zigzag` of `n` (`0` when the evaluation fails, which the `zigzag.zigzag` record
+itself reports); the input list for the `unzigzag` records. -/
+def zigzagMapped (n : Int) : Nat :=
+  match (zigzag.zigzag (i32 n)).match with
+  | .ok v => v.val
+  | _ => 0
+
+/-- Decode inputs: each complete encoding, each of its proper prefixes (`Truncated`), each encoding
+followed by a trailing byte, and the two `Overlong` wires -- the same three classes
+`varintDecodeInputs` covers, since `decode_i32` forwards the varint's own errors unchanged. -/
+def zigzagDecodeInputs : List (List Nat) :=
+  let perValue := zigzagValues.flatMap fun n =>
+    let e := zigzagEncodeBytes n
+    (e :: properPrefixes e) ++ [e ++ [42]]
+  (perValue ++ [[128, 128, 128, 128, 128], [128, 128, 128, 128, 128, 1]]).eraseDups
+
+def zigzagDecodeFields (bs : List Nat) : List String :=
+  fields (zigzag.decode_i32 (sliceOf bs)) fun r =>
     match r with
     | .Ok (v, k) => [s!"ok {v.val} {k.val}"]
     | .Err .Truncated => ["err truncated"]
@@ -453,6 +500,26 @@ def varintSection : List String :=
        ] ++ varintOutOfDomainInputs.map (fun bs =>
         mkRec (mkLhs "varint.decode.out_of_domain" (natsToStr bs)) (decodeFields bs))
 
+def zigzagSection : List String :=
+  [ "# ---- Zigzag: the extracted zigzag / unzigzag / encode_i32 / decode_i32 --------------"
+  , "# The signed varint, delegating to the varint codec. zigzag and unzigzag records carry the"
+  , "#   mapped scalar; encode records carry the bytes; decode records carry the Rust result,"
+  , "#   `ok <value> <consumed>`, `err truncated` or `err overlong` -- decode_i32 forwards the"
+  , "#   VarintError unchanged, so no new error variant appears."
+  , "# Signed arguments and signed results are decimal and may carry a leading minus."
+  ] ++ zigzagValues.map (fun n =>
+        mkRec (mkLhs "zigzag.zigzag" (toString n))
+          (fields (zigzag.zigzag (i32 n)) fun v => [toString v.val]))
+    ++ (zigzagValues.map zigzagMapped).eraseDups.map (fun m =>
+        mkRec (mkLhs "zigzag.unzigzag" (toString m))
+          (fields (zigzag.unzigzag (u32 m)) fun v => [toString v.val]))
+    ++ zigzagValues.map (fun n =>
+        mkRec (mkLhs "zigzag.encode" (toString n))
+          (fields (zigzag.encode_i32 (i32 n) (alloc.vec.Vec.new Std.U8)) fun v =>
+            [u8sToStr v.val]))
+    ++ zigzagDecodeInputs.map (fun bs =>
+        mkRec (mkLhs "zigzag.decode" (natsToStr bs)) (zigzagDecodeFields bs))
+
 def stuffSection : List String :=
   [ "# ---- Stuff: the extracted stuff / encode_frame / unstuff ---------------------------"
   , "# stuff records carry the stuffed payload; encode_frame records add the terminating flag."
@@ -484,7 +551,8 @@ def channelSection : List String :=
     ++ chTraces "channel.vecqueue" vqFrameRecord (channel.Channel.with_queue vqFrameRecord)
 
 def output (rev : String) : List String :=
-  header rev ++ queueSection ++ varintSection ++ stuffSection ++ crc8Section ++ channelSection
+  header rev ++ queueSection ++ varintSection ++ zigzagSection ++ stuffSection
+    ++ crc8Section ++ channelSection
 
 end GenVectors
 

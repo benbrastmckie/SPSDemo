@@ -187,6 +187,97 @@ varint.decode 128 128 128 128 128 1 => err overlong
 #   2 ^ 32 here, the divergence the bridge states as decode_err_iff.
 varint.decode.out_of_domain 128 128 128 128 16 => err overlong
 varint.decode.out_of_domain 128 128 128 128 127 => err overlong
+# ---- Zigzag: the extracted zigzag / unzigzag / encode_i32 / decode_i32 --------------
+# The signed varint, delegating to the varint codec. zigzag and unzigzag records carry the
+#   mapped scalar; encode records carry the bytes; decode records carry the Rust result,
+#   `ok <value> <consumed>`, `err truncated` or `err overlong` -- decode_i32 forwards the
+#   VarintError unchanged, so no new error variant appears.
+# Signed arguments and signed results are decimal and may carry a leading minus.
+zigzag.zigzag 0 => 0
+zigzag.zigzag -1 => 1
+zigzag.zigzag 1 => 2
+zigzag.zigzag -2 => 3
+zigzag.zigzag 63 => 126
+zigzag.zigzag -64 => 127
+zigzag.zigzag 64 => 128
+zigzag.zigzag -65 => 129
+zigzag.zigzag 8191 => 16382
+zigzag.zigzag -8192 => 16383
+zigzag.zigzag 8192 => 16384
+zigzag.zigzag -8193 => 16385
+zigzag.zigzag 2147483647 => 4294967294
+zigzag.zigzag -2147483648 => 4294967295
+zigzag.unzigzag 0 => 0
+zigzag.unzigzag 1 => -1
+zigzag.unzigzag 2 => 1
+zigzag.unzigzag 3 => -2
+zigzag.unzigzag 126 => 63
+zigzag.unzigzag 127 => -64
+zigzag.unzigzag 128 => 64
+zigzag.unzigzag 129 => -65
+zigzag.unzigzag 16382 => 8191
+zigzag.unzigzag 16383 => -8192
+zigzag.unzigzag 16384 => 8192
+zigzag.unzigzag 16385 => -8193
+zigzag.unzigzag 4294967294 => 2147483647
+zigzag.unzigzag 4294967295 => -2147483648
+zigzag.encode 0 => 0
+zigzag.encode -1 => 1
+zigzag.encode 1 => 2
+zigzag.encode -2 => 3
+zigzag.encode 63 => 126
+zigzag.encode -64 => 127
+zigzag.encode 64 => 128 1
+zigzag.encode -65 => 129 1
+zigzag.encode 8191 => 254 127
+zigzag.encode -8192 => 255 127
+zigzag.encode 8192 => 128 128 1
+zigzag.encode -8193 => 129 128 1
+zigzag.encode 2147483647 => 254 255 255 255 15
+zigzag.encode -2147483648 => 255 255 255 255 15
+zigzag.decode 0 => ok 0 1
+zigzag.decode => err truncated
+zigzag.decode 0 42 => ok 0 1
+zigzag.decode 1 => ok -1 1
+zigzag.decode 1 42 => ok -1 1
+zigzag.decode 2 => ok 1 1
+zigzag.decode 2 42 => ok 1 1
+zigzag.decode 3 => ok -2 1
+zigzag.decode 3 42 => ok -2 1
+zigzag.decode 126 => ok 63 1
+zigzag.decode 126 42 => ok 63 1
+zigzag.decode 127 => ok -64 1
+zigzag.decode 127 42 => ok -64 1
+zigzag.decode 128 1 => ok 64 2
+zigzag.decode 128 => err truncated
+zigzag.decode 128 1 42 => ok 64 2
+zigzag.decode 129 1 => ok -65 2
+zigzag.decode 129 => err truncated
+zigzag.decode 129 1 42 => ok -65 2
+zigzag.decode 254 127 => ok 8191 2
+zigzag.decode 254 => err truncated
+zigzag.decode 254 127 42 => ok 8191 2
+zigzag.decode 255 127 => ok -8192 2
+zigzag.decode 255 => err truncated
+zigzag.decode 255 127 42 => ok -8192 2
+zigzag.decode 128 128 1 => ok 8192 3
+zigzag.decode 128 128 => err truncated
+zigzag.decode 128 128 1 42 => ok 8192 3
+zigzag.decode 129 128 1 => ok -8193 3
+zigzag.decode 129 128 => err truncated
+zigzag.decode 129 128 1 42 => ok -8193 3
+zigzag.decode 254 255 255 255 15 => ok 2147483647 5
+zigzag.decode 254 255 => err truncated
+zigzag.decode 254 255 255 => err truncated
+zigzag.decode 254 255 255 255 => err truncated
+zigzag.decode 254 255 255 255 15 42 => ok 2147483647 5
+zigzag.decode 255 255 255 255 15 => ok -2147483648 5
+zigzag.decode 255 255 => err truncated
+zigzag.decode 255 255 255 => err truncated
+zigzag.decode 255 255 255 255 => err truncated
+zigzag.decode 255 255 255 255 15 42 => ok -2147483648 5
+zigzag.decode 128 128 128 128 128 => err overlong
+zigzag.decode 128 128 128 128 128 1 => err overlong
 # ---- Stuff: the extracted stuff / encode_frame / unstuff ---------------------------
 # stuff records carry the stuffed payload; encode_frame records add the terminating flag.
 # unstuff records carry the Rust result: `ok <payload> <consumed>`, `err truncated` or

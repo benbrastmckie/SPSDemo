@@ -11,6 +11,7 @@ use framed_channel::queue::BoundedQueue;
 use framed_channel::ring_buffer::{Full, RingBuffer};
 use framed_channel::stuff::{encode_frame as stuff_encode_frame, stuff, unstuff, UnstuffError};
 use framed_channel::varint::{decode_u32, encode_u32, VarintError};
+use framed_channel::zigzag::{decode_i32, encode_i32, unzigzag, zigzag};
 use framed_channel::{Channel, Frame, VecQueue, MARKER};
 use std::collections::VecDeque;
 
@@ -507,6 +508,13 @@ fn one_usize(ts: &[String]) -> usize {
     }
 }
 
+fn one_i32(ts: &[String]) -> i32 {
+    match ts.first() {
+        Some(t) => t.parse::<i32>().expect("vectors.txt: signed value does not fit i32"),
+        None => panic!("vectors.txt: expected one signed scalar"),
+    }
+}
+
 fn flag(r: &Record, i: usize) -> bool {
     match r.field(i).first() {
         Some(s) => s == "1",
@@ -669,6 +677,98 @@ fn varint_out_of_domain_agrees_with_extracted_vectors() {
         );
     }
     assert!(inputs.count > before, "vectors.txt has lost the out-of-domain varint class");
+    inputs.report();
+}
+
+/// The signed decode result a `zigzag.decode` record records.
+fn expected_zigzag_decode(r: &Record) -> Result<(i32, usize), VarintError> {
+    match r.status(0) {
+        "ok" => {
+            let rest = r.rest(0);
+            let value = match rest.first() {
+                Some(v) => v.parse::<i32>().expect("vectors.txt: decoded value does not fit i32"),
+                None => panic!("vectors.txt: an ok zigzag decode record with no value"),
+            };
+            let used = match rest.get(1..) {
+                Some(u) => one_usize(u),
+                None => panic!("vectors.txt: an ok zigzag decode record with no consumed count"),
+            };
+            Ok((value, used))
+        }
+        "err" => match r.rest(0).first() {
+            Some(v) if v == "truncated" => Err(VarintError::Truncated),
+            Some(v) if v == "overlong" => Err(VarintError::Overlong),
+            _ => panic!("vectors.txt: a zigzag decode error record with no known variant"),
+        },
+        other => panic!("vectors.txt: unexpected zigzag decode result {other}"),
+    }
+}
+
+/// `zigzag`/`unzigzag`/`encode_i32`/`decode_i32` against the extracted functions: the signed map and
+/// its inverse, the encoded bytes, and the decode result with its error variant and consumed count.
+/// The vectors cover `i32::MIN`, `i32::MAX`, zero and both signs either side of the one-byte and
+/// two-byte encoding boundaries. Since `decode_i32` forwards the `VarintError` its `decode_u32` call
+/// returns, the error variants here are the varint's own -- the agreement the model states as
+/// `FramedChannel.Zigzag.decode_fail_iff` and the bridge as
+/// `FramedChannel.Bridge.zigzag.decode_err_iff`.
+#[test]
+fn zigzag_agrees_with_extracted_vectors() {
+    let mut inputs = Inputs::new("zigzag_agrees_with_extracted_vectors");
+    let records = parse_vectors();
+    let before = inputs.count;
+    for r in &records {
+        match r.op.as_str() {
+            "zigzag.zigzag" => {
+                inputs.saw();
+                let want = match r.field(0).first() {
+                    Some(v) => {
+                        v.parse::<u32>().expect("vectors.txt: zigzag image does not fit u32")
+                    }
+                    None => panic!("vectors.txt: a zigzag.zigzag record with no image"),
+                };
+                assert_eq!(
+                    zigzag(one_i32(&r.args)),
+                    want,
+                    "zigzag disagrees for {}",
+                    r.args.join(" ")
+                );
+            }
+            "zigzag.unzigzag" => {
+                inputs.saw();
+                let want = match r.field(0).first() {
+                    Some(v) => {
+                        v.parse::<i32>().expect("vectors.txt: unzigzag value does not fit i32")
+                    }
+                    None => panic!("vectors.txt: a zigzag.unzigzag record with no value"),
+                };
+                assert_eq!(
+                    unzigzag(one_u32(&r.args)),
+                    want,
+                    "unzigzag disagrees for {}",
+                    r.args.join(" ")
+                );
+            }
+            "zigzag.encode" => {
+                inputs.saw();
+                let mut got: Vec<u8> = Vec::new();
+                encode_i32(one_i32(&r.args), &mut got);
+                assert!(got.len() <= 5, "a zigzag encoding exceeded five bytes");
+                assert_eq!(got, u8s(r.field(0)), "encode_i32 disagrees for {}", r.args.join(" "));
+            }
+            "zigzag.decode" => {
+                inputs.saw();
+                let got = decode_i32(&u8s(&r.args));
+                assert_eq!(
+                    got,
+                    expected_zigzag_decode(r),
+                    "decode_i32 disagrees for {}",
+                    r.args.join(" ")
+                );
+            }
+            _ => {}
+        }
+    }
+    assert!(inputs.count > before, "vectors.txt carries no zigzag records");
     inputs.report();
 }
 
@@ -945,13 +1045,15 @@ fn extracted_vectors_cover_every_translated_operation() {
     let mut inputs = Inputs::new("extracted_vectors_cover_every_translated_operation");
     let records = parse_vectors();
     #[rustfmt::skip]
-    let branches: [(&str, &str, &str); 29] = [
+    let branches: [(&str, &str, &str); 32] = [
         ("ringbuffer.push", "ok", ""), ("ringbuffer.push", "err", ""),
         ("ringbuffer.pop", "some", ""), ("ringbuffer.pop", "none", ""),
         ("vecqueue.push", "ok", ""), ("vecqueue.push", "err", ""),
         ("vecqueue.pop", "some", ""), ("vecqueue.pop", "none", ""),
         ("varint.decode", "ok", ""), ("varint.decode", "err", "truncated"),
         ("varint.decode", "err", "overlong"), ("varint.decode.out_of_domain", "err", "overlong"),
+        ("zigzag.decode", "ok", ""), ("zigzag.decode", "err", "truncated"),
+        ("zigzag.decode", "err", "overlong"),
         ("channel.parse_frame", "some", ""), ("channel.parse_frame", "none", ""),
         ("channel.ringbuffer.send", "ok", ""), ("channel.ringbuffer.send", "err", ""),
         ("channel.ringbuffer.deliver", "ok", ""), ("channel.ringbuffer.deliver", "err", ""),
@@ -970,10 +1072,11 @@ fn extracted_vectors_cover_every_translated_operation() {
         );
     }
     #[rustfmt::skip]
-    let total: [&str; 10] = [
+    let total: [&str; 13] = [
         "ringbuffer.new", "vecqueue.new", "channel.ringbuffer.new", "channel.vecqueue.new",
         "varint.encode", "crc8.bits", "crc8.table", "channel.encode_frame",
         "stuff.stuff", "stuff.encode_frame",
+        "zigzag.encode", "zigzag.zigzag", "zigzag.unzigzag",
     ];
     for op in total {
         inputs.saw();
