@@ -144,6 +144,25 @@ theorem usize_saturating_sub_spec (x y : Usize) :
   simp only [UScalar.val]
   exact Nat.mod_eq_of_lt (by simp only [UScalar.val] at hx; omega)
 
+/-- `usize::saturating_add` is addition capped at `Usize.max`. Never fails.
+
+Reached from `rust/src/receiver.rs`'s `finish_run`, whose `dropped.saturating_add(1)` is what leaves
+`feed`'s refinement triple with no arithmetic hypothesis at all: a plain `+= 1` would be an addition
+Aeneas models as a panic on overflow, and every triple would then carry `dropped < usize::MAX`. The
+mirror of `usize_saturating_sub_spec` above, which `stuffed_channel.rs`'s `in_flight.saturating_sub(1)`
+reaches for the same reason. -/
+@[step]
+theorem usize_saturating_add_spec (x y : Usize) :
+    lift (core.num.Usize.saturating_add x y)
+      ⦃ z => z.val = min (UScalar.max UScalarTy.Usize) (x.val + y.val) ⦄ := by
+  simp [lift, core.num.Usize.saturating_add, UScalar.saturating_add]
+  have hmax : UScalar.max UScalarTy.Usize < 2 ^ System.Platform.numBits := by
+    rw [UScalar.max]
+    have h0 : (0 : Nat) < 2 ^ (UScalarTy.Usize).numBits := Nat.two_pow_pos _
+    simp [UScalarTy.numBits] at h0 ⊢
+  simp only [UScalar.val]
+  exact Nat.mod_eq_of_lt (by omega)
+
 end FramedChannel.Bridge
 
 #print axioms FramedChannel.Bridge.range_i32_next_spec
@@ -154,3 +173,4 @@ end FramedChannel.Bridge
 #print axioms FramedChannel.Bridge.slice_get_range_from_spec
 #print axioms FramedChannel.Bridge.slice_get_range_to_spec
 #print axioms FramedChannel.Bridge.usize_saturating_sub_spec
+#print axioms FramedChannel.Bridge.usize_saturating_add_spec
