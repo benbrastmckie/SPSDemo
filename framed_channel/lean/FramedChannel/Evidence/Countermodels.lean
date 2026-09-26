@@ -2,6 +2,7 @@
 import FramedChannel.Ladder
 import FramedChannel.Model.Varint.Theorems
 import FramedChannel.Model.Zigzag.Theorems
+import FramedChannel.Model.SeqNum.Theorems
 import FramedChannel.Model.Stuff.Theorems
 import FramedChannel.Composition.Channel.Theorems
 
@@ -253,6 +254,71 @@ theorem zigzag_encode_length_le_unbounded_false : ¬ zigzag_encode_length_le_unb
 refuted% zigzag_encode_length_le_unbounded zigzag_encode_length_le_unbounded_false
   search_zigzag_encode_length_le_unbounded
 
+
+/-! ## 10. RFC 1982 serial `lt` is not transitive
+
+**This is the one countermodel in this repository that refutes a law a reader would simply assume
+holds.** Every other block here refutes a statement missing a hypothesis; this one refutes
+transitivity of an order-looking relation. RFC 1982 §3.2 defines the comparison and never states
+that it composes, and it does not: `lt` has genuine three-cycles. That is why
+`Spec/Serial.lean`'s `SerialLaws` has no transitivity field, why `Model/SeqNum/Theorems.lean` proves
+no transitivity theorem, and why a `ReceiverLaws`-style consumer must not build a total order on
+this relation.
+
+**Why a step of 5000 and not powers of two.** A powers-of-two enumeration's first failure is
+`(0, 16384, 32768)`, where `a` and `c` are exactly half the space apart and *neither* is serially
+before the other -- that is §3.2's **undefined region**, a different phenomenon, refuted separately
+in block 11 below. A step of 5000 puts the first failure at a triple that genuinely cycles:
+`cycle_witness` below records that `lt 40000 0` holds too, so `0 -> 20000 -> 40000 -> 0` is a cycle
+rather than a mere failure to compose. The enumeration *is* the finding, which is why it is stated
+rather than tuned silently. -/
+
+/-- The rejected candidate: serial comparison composes, i.e. `lt` is transitive. -/
+def lt_trans_cand : Prop :=
+  ∀ a b c : BitVec 16, SeqNum.lt a b = true → SeqNum.lt b c = true → SeqNum.lt a c = true
+
+/-- Over the six triples `(0, d, 2 * d)` for `d` stepping by 5000, the first that breaks
+transitivity is `(0, 20000, 40000)`. `[PROVED: kernel]` -/
+theorem search_lt_trans :
+    (([5000, 10000, 15000, 20000, 25000, 30000] : List Nat).map
+        (fun d => (BitVec.ofNat 16 0, BitVec.ofNat 16 d, BitVec.ofNat 16 (2 * d)))).find?
+      (fun t => SeqNum.lt t.1 t.2.1 && SeqNum.lt t.2.1 t.2.2 && !SeqNum.lt t.1 t.2.2)
+      = some (0#16, 20000#16, 40000#16) := by decide +kernel
+
+/-- `[PROVED: kernel]` -/
+theorem lt_trans_cand_false : ¬ lt_trans_cand :=
+  fun h => absurd (h 0#16 20000#16 40000#16 (by decide) (by decide)) (by decide)
+
+/-- The third edge, which makes the witness a *cycle* and not merely a composition failure:
+`40000` is serially before `0`. `[PROVED: kernel]` -/
+theorem cycle_witness : SeqNum.lt 40000#16 0#16 = true := by decide
+
+refuted% lt_trans_cand lt_trans_cand_false search_lt_trans
+
+/-! ## 11. Totality of serial `lt` without the `defined` hypothesis
+
+RFC 1982 §3.2 leaves the comparison undefined on a pair exactly half the space apart, and that
+region is reachable in this formulation: `dist 0 32768 = 32768 = dist 32768 0`, so neither number is
+serially before the other. This block is what makes `SerialLaws.lt_total_of_defined`'s `defined`
+hypothesis demonstrably load-bearing rather than decorative -- the same service
+`stuff_maxLen_unbounded` (block 6) performs for `Stuff`'s `maxPayload`. -/
+
+/-- The rejected candidate: any two distinct sequence numbers are ordered one way or the other. -/
+def lt_total_cand : Prop := ∀ a b : BitVec 16, a ≠ b → SeqNum.lt a b = true ∨ SeqNum.lt b a = true
+
+/-- Over the eight multiples of 8192, the first that is comparable with neither direction against
+`0` is `32768` -- exactly half the space. `[PROVED: kernel]` -/
+theorem search_lt_total :
+    ((List.range 8).map (fun k => BitVec.ofNat 16 (k * 8192))).find?
+      (fun b => b != 0#16 && !(SeqNum.lt 0#16 b || SeqNum.lt b 0#16)) = some 32768#16 := by
+  decide +kernel
+
+/-- `[PROVED: kernel]` -/
+theorem lt_total_cand_false : ¬ lt_total_cand :=
+  fun h => by rcases h 0#16 32768#16 (by decide) with h1 | h1 <;> exact absurd h1 (by decide)
+
+refuted% lt_total_cand lt_total_cand_false search_lt_total
+
 #print axioms search_encode_length_le_unbounded
 #print axioms encode_length_le_unbounded_false
 #print axioms search_varint_roundtrip_unbounded
@@ -271,5 +337,10 @@ refuted% zigzag_encode_length_le_unbounded zigzag_encode_length_le_unbounded_fal
 #print axioms zigzag_monotone_false
 #print axioms search_zigzag_encode_length_le_unbounded
 #print axioms zigzag_encode_length_le_unbounded_false
+#print axioms search_lt_trans
+#print axioms lt_trans_cand_false
+#print axioms cycle_witness
+#print axioms search_lt_total
+#print axioms lt_total_cand_false
 
 end FramedChannel

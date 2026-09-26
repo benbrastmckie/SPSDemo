@@ -5,6 +5,7 @@ import FramedChannelChallenge.Varint
 import FramedChannelChallenge.Crc8
 import FramedChannelChallenge.Stuff
 import FramedChannelChallenge.Zigzag
+import FramedChannelChallenge.SeqNum
 import FramedChannelChallenge.Channel
 
 /-!
