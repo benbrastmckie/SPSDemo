@@ -1,6 +1,8 @@
 -- SPDX-License-Identifier: Apache-2.0
 import FramedChannel.Spec.Receiver
 import FramedChannel.Composition.StuffedChannel.Defs
+import FramedChannel.Model.Stuff.Defs
+import FramedChannel.Model.Crc8.Defs
 
 /-!
 # Composition/Receiver/Defs: the resynchronizing receive path's definitions
@@ -141,6 +143,25 @@ def room (c : Rcv Q) : Bool := ! QueueModel.full (Q := Q) (α := E) c.out
 
 /-- Whether the receiver is at a run boundary, with no partial run buffered. -/
 def quiet (c : Rcv Q) : Bool := c.buf.isEmpty
+
+/-! ## The canonical model as an instance of the L0 interface
+
+`ReceiverModel` carries operations only, so its instance is a definition and belongs here rather
+than in `Composition/Receiver/Instances.lean` -- `Model/VecQueue/Defs.lean` holds `instQueueModel`
+for the same reason while `Model/VecQueue/Theorems.lean` holds `instBoundedQueueLaws`. It also has
+to be here: `FramedChannelChallenge.Receiver` restates the registered `instReceiverLaws`, whose type
+cannot elaborate without this instance, and a Challenge module may import a `Defs` module but not a
+proof module. -/
+
+/-- The canonical model's operations as an instance of the L0 interface: `Rcv Q` over any bounded
+queue of frames, at HDLC byte stuffing and the bitwise CRC-8. -/
+instance instReceiverModel {Q : Type} [QueueModel Q Frame] : ReceiverModel (Rcv Q) Frame where
+  feed r w := feed (C := Stuff.Hdlc) (K := Crc8.Bitwise) (E := Frame) Stuff.marker r w
+  poll r := poll (Q := Q) (E := Frame) r
+  accepted r := accepted (Q := Q) (E := Frame) r
+  dropped r := r.dropped
+  room r := room (Q := Q) (E := Frame) r
+  quiet r := quiet (Q := Q) r
 
 /-- The receiver invariant: the buffered run is flag-free. `feed` preserves it -- a byte equal to
 the flag ends the run rather than entering it -- which is what lets the acceptance test terminate

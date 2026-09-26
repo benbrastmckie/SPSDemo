@@ -14,7 +14,9 @@ and the new `Spec/Receiver.lean` -- and imports no queue model, no `Model/Stuff/
 `Model/Crc8/Theorems`. This module is where the composition layer meets the model layer, four times
 over:
 
-* `instReceiverModel` and `instReceiverLaws` show the new interface is **not vacuous**: the
+* `instReceiverLaws` shows the new interface is **not vacuous** (its L0 companion
+  `instReceiverModel` is a definition and lives in `Composition/Receiver/Defs.lean`, where the
+  Challenge module can see it): the
   canonical model `Rcv Q`, over any lawful bounded queue of frames, at HDLC byte stuffing
   (`Stuff.Hdlc`), the bitwise CRC-8 (`Crc8.Bitwise`), `flag := Stuff.marker`,
   `enc := StuffedChannel.encodeStuffed` and `Dom := Channel.FrameOK`, satisfies all six L1 laws.
@@ -82,15 +84,6 @@ end hdlc
 
 section canonical
 variable {Q : Type} [QueueModel Q Frame]
-
-/-- The canonical model's operations as an instance of the new L0 interface. -/
-instance instReceiverModel : ReceiverModel (Rcv Q) Frame where
-  feed r w := feed (C := Stuff.Hdlc) (K := Crc8.Bitwise) (E := Frame) Stuff.marker r w
-  poll r := poll (Q := Q) (E := Frame) r
-  accepted r := accepted (Q := Q) (E := Frame) r
-  dropped r := r.dropped
-  room r := room (Q := Q) (E := Frame) r
-  quiet r := quiet (Q := Q) r
 
 /-- The interface's `feed` is the model's own. A supporting lemma. `[PROVED: kernel]` -/
 theorem model_feed (r : Rcv Q) (w : List Nat) :
@@ -278,7 +271,6 @@ theorem feed_spec_VQ (c : Rcv (VecQueue.VQ Frame)) (p : Frame) (hp : FrameOK p)
 
 end substitution
 
-#print axioms instReceiverModel
 #print axioms instReceiverLaws
 #print axioms resync_progress
 #print axioms order_preserved
