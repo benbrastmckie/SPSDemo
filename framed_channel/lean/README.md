@@ -125,7 +125,7 @@ component is one directory, splitting into `<X>/Theorems.lean` (the theorems bel
 `<X>/Defs.lean` (definitions only:
 the representation, its invariant where it has one, the operations and the interface instance) --
 `RingBuffer/Defs.lean`, `VecQueue/Defs.lean`, `Varint/Defs.lean`, `Zigzag/Defs.lean`,
-`Crc8/Defs.lean`, `SeqNum/Defs.lean` -- so the
+`Stuff/Defs.lean`, `Crc8/Defs.lean`, `SeqNum/Defs.lean` -- so the
 Challenge module for that component can import definitions without importing a registered
 theorem. `RingBuffer/Defs.lean` is the one exception documented in its own header: `pushBQ` and
 `popBQ` build the invariant subtype with `push_inv` and `pop_inv`, so those two theorems (and the
@@ -157,6 +157,15 @@ theorem. `RingBuffer/Defs.lean` is the one exception documented in its own heade
   `zigzag_unzigzag`) is registered hypothesis-free, which is stronger than mutual inversion on the
   `i32` range. Rust counterpart: `zigzag`, `unzigzag`, `encode_i32`, `decode_i32`, which delegate to
   `crate::varint` rather than reimplementing LEB128.
+- **`Stuff/Theorems.lean`**: HDLC-style byte stuffing (RFC 1662 asynchronous framing), bytes as
+  naturals below 256, giving `CodecModel`/`CodecLaws` a third value type (`α = List Nat`, beside
+  `Leb128` at the naturals and `ZigzagI32` at the integers) on the tag `Hdlc`. `stuff_marker_free`
+  (a stuffed payload contains no flag byte, which is what makes the decoder's scan-to-flag
+  unambiguous), `stuff_roundtrip` -- unconditional, unlike `varint_roundtrip` -- and the two
+  input-relative bounds `stuff_length_le` and `encode_length_le`, both strictly more informative
+  than the constant `CodecLaws.length_le` demands. `Dom` carries a 255-byte payload bound, and the
+  unconditional constant bound is *false*: `Evidence/Countermodels.lean` refutes it. Rust
+  counterpart: `stuff`, `encode_frame`, `unstuff`.
 - **`Crc8/Theorems.lean`**: CRC-8 with polynomial `0x07`, bytes as `BitVec 8`. `crc8_table_eq_bits`
   (the 256-entry table agrees with the bitwise loop, via a per-entry lemma closed by kernel
   `decide`), `stepTable_index_in_range`, and two `ChecksumLaws` instances, `Bitwise` and `Tabled`.
@@ -193,6 +202,27 @@ theorem. `RingBuffer/Defs.lean` is the one exception documented in its own heade
   "proved once, holds for every instance" is enforced by the import graph.
 - **`Channel/Instances.lean`**: `deliver_spec_RB` and `deliver_spec_VQ`, `deliver_spec` used
   unchanged at both queues.
+- **`StuffedChannel/Defs.lean`**: the definitions half of `StuffedChannel/Theorems.lean` -- the
+  composition-layer law bundle `Transparent` (a round trip with an *arbitrary* residual, a
+  flag-free body, a terminating flag, with `flag` a class parameter because a `Prop`-valued class
+  cannot carry a `Nat` field), the frame body `body`, the stuffed wire format (`encodeStuffed`,
+  `parseStuffed`), the channel state `SChan`, its `send` and `deliver`, and the invariant
+  `SChanInv`. Definitions only, and it imports no queue model either.
+- **`StuffedChannel/Theorems.lean`**: `Channel`'s transparent counterpart, and the example's
+  strongest composition claim: it reaches **three** interfaces generically -- the queue through
+  `Spec/Queue.lean`, the framing codec through `CodecModel` at L0 plus the `Transparent` bundle, and
+  the checksum through `ChecksumModel` at L0 -- where `Channel` reaches one. `CodecLaws` is
+  deliberately not used: its `Dom` at `Stuff` caps payloads at 255 bytes where this composite admits
+  every payload below `2 ^ 32`, and its `round_trip` gives a residual of `[]` only, which would
+  confine `SChanInv` to at most one pending frame. `wire_flag_free_of_send` is the headline and the
+  theorem `Channel` cannot have: no byte written other than a frame terminator is the flag. The
+  round trip `parseStuffed_encodeStuffed` is *not* the distinguishing claim -- `Channel`'s holds at
+  marker-bearing payloads too -- and `Evidence/Countermodels.lean` refutes the marker-free-wire
+  claim about `Channel.encodeFrame` in the kernel. The module imports no queue model and no
+  `Model/Stuff/Theorems`, so the genericity is enforced by the import graph.
+- **`StuffedChannel/Instances.lean`**: `instTransparentHdlc`, the `Transparent` bundle discharged at
+  HDLC stuffing from `Stuff.unstuff_stuff` and `Stuff.stuff_marker_free` alone, plus
+  `deliver_spec_RB` and `deliver_spec_VQ` -- the substitution row at a second composite.
 
 ### Registry and scoring: `Certify.lean`, `Registry.lean`
 
@@ -251,11 +281,14 @@ record:
 | `varint_roundtrip_unbounded` | `varint_roundtrip`'s `n < 2 ^ 32` | `2 ^ 35`, whose sixth byte is left over |
 | `parseFrameResync_roundtrip` | the receiver design: a parser treating a second `0x7E` as a new boundary | payload length `126`, whose one length byte is `0x7E` |
 | `idx_ne_le` | `idx_ne`'s strict `i < len`, weakened to `i ≤ len` | `(i, len) = (0, 0)` |
+| `encode_no_expansion` | nothing -- it refutes a plausible *hope*: that a stuffed frame is no longer than its payload. Stuffing expands, which is what `stuff_length_le`'s factor of two is for | `[Stuff.marker]`, the one-byte payload that is itself the flag |
+| `stuff_maxLen_unbounded` | `CodecLaws.length_le` at `Stuff` without the domain's `p.length ≤ 255`. This is what makes `Hdlc`'s `Dom` bound demonstrably load-bearing rather than decorative | a 256-byte all-flag payload, whose stuffed frame is 513 bytes against a `maxLen` of 511 |
 | `zigzag_lt_unbounded` | `Zigzag.zigzag_lt`'s `i32`-range hypothesis | `2 ^ 31`, the first value outside `i32` |
 | `zigzag_monotone` | nothing -- it refutes a plausible *misuse*: that `zigzag` preserves order, hence that encoded byte order is signed order | `(-2, -1)` |
 | `zigzag_encode_length_le_unbounded` | `Zigzag.encode_length_le`'s domain hypothesis entirely | `2 ^ 34`, the **varint's** five-byte fuel boundary, not the `i32` one -- that refutation is `zigzag_lt_unbounded` |
 | `lt_trans_cand` | nothing -- it is the one row here that refutes a law a reader would simply **assume** holds: that RFC 1982's serial `lt` is transitive. `SerialLaws` therefore has no such field | `(0, 20000, 40000)`, a genuine three-cycle (`cycle_witness` records `lt 40000 0` too). The enumeration steps by 5000 rather than by powers of two, whose first failure would instead be the undefined region below |
 | `lt_total_cand` | `SeqNum.lt_total_of_defined`'s `defined` hypothesis | `32768`, exactly half the space from `0`, where §3.2 leaves the comparison undefined and neither number is serially before the other |
+| `channel_wire_marker_free` | nothing -- it refutes the claim that makes `StuffedChannel` necessary: that the unstuffed `Channel` writes the flag byte nowhere after a frame's leading boundary byte, so a receiver could scan to the next flag. It cannot. Distinct from `parseFrameResync_roundtrip` above in quantified object (the encoder's output, not a receiver's behaviour), witness, and mechanism (a payload byte colliding with the flag, not a varint length byte) | `[marker]`, the one-byte payload that is itself the flag |
 
 ### Tooling: `FramedChannel/SpecCheck.lean`
 

@@ -1,7 +1,7 @@
 # aeneas/
 
 The Lake package that connects the hand-written models in `../lean` to a real Charon/Aeneas
-extraction of the whole `../rust` crate. All eight units are extracted, axiom-free, and bridged to
+extraction of the whole `../rust` crate. All nine units are extracted, axiom-free, and bridged to
 their models: the ring buffer, the list-backed `VecQueue`, the varint codec, the zigzag
 signed-varint codec, the CRC-8 and the HDLC byte-stuffing codec, with the specification's laws
 instantiated directly on their extracted carriers, and the channel, whose composition theorems are proved once over any lawful extracted
@@ -63,8 +63,8 @@ generic queue bridge sits in `FramedChannel.Bridge` itself. Never state a bridge
 extraction's own names. `Registry.lean` records the convention.
 
 **The Challenge library**, `FramedChannelAeneasChallenge/` (root
-`FramedChannelAeneasChallenge.lean`, modules `Queue`, `RingBuffer`, `VecQueue`, `Varint`, `Crc8`
-and `Channel`; not a default target), restates every
+`FramedChannelAeneasChallenge.lean`, modules `Queue`, `RingBuffer`, `VecQueue`, `Varint`, `Zigzag`,
+`Stuff`, `Crc8`, `SeqNum`, `Channel` and `StuffedChannel`; not a default target), restates every
 registered bridge theorem with `:= sorry`, importing only `Defs` modules: the approved bridge
 specification, one approval unit per module (`Queue` holds the component-independent transport
 theorems and `cloneVecU8_isId`). See `../certificate/README.md`, "Select, Specify and approval".
@@ -217,6 +217,35 @@ needed); `with_queue_idle`/`with_queue_idle_VQ` (an idle queue after `Channel::w
 idle
 state is assumed elsewhere); and
 `send_deliver_from_new_RB`/`_VQ` starting at `Channel::new` / `Channel::with_queue`.
+
+### FramedChannelAeneas/Bridge/Stuff/
+The HDLC byte-stuffing codec, the one whose error agreement is an exact `iff`. `Defs.lean` gives the
+byte abstraction `bytesOf`, the extracted codec tag `ExtractedHdlc` and its lowered
+`extEncode`/`extDecode`. `Stuff.lean`: the extracted-constant value lemmas, `stuff_loop_refines` and
+the two public triples `stuff_refines` and `encode_frame_refines`, each with a room-for-two-bytes-
+per-input-byte hypothesis. `Unstuff.lean`: `unstuff_loop_refines` over the accumulating decoder and
+the three decode triples derived from it -- `decode_ok_refines`, `decode_complete` and
+`decode_err_iff`, the last an exact `iff` where the varint codec's is an implication in one
+direction only -- plus `roundtrip_extracted`. `Instance.lean`: `instCodecLaws_extracted`.
+
+### FramedChannelAeneas/Bridge/StuffedChannel/
+The transparent composite, stated once over any lawful extracted queue record, exactly as
+`Bridge/Channel/` is. It reuses that directory's frame and queue plumbing rather than mirroring it
+(the frame carrier at `Vec<u8>`, `FrameVec`, `ExtQ`, `rbRecord`, `vqRecord`); what it declares of
+its own is the wire. `Defs.lean`: the relation `SChanRel`, `DeclaresWideLength`, `ParsePost` and
+`SChanRB`/`SChanVQ`. `Abstraction.lean`: the two byte views (the model's wire is `List Nat`, payload
+frames are `List (BitVec 8)`) and the three component-tag spellings. `Frame.lean`: `body_refines`,
+`encode_stuffed_refines`, `parse_stuffed_refines` and the extracted round trip;
+`parse_stuffed_refines` carries no hypothesis at all, arithmetic included, and its `ParsePost` has
+exactly one divergence disjunct, the varint layer's -- the stuffing layer contributes none.
+`Refinement.lean` and `Composite.lean` mirror the channel's, and `Composite.lean` adds
+`wire_flag_free_extracted`, the transparency claim on the extracted side. `Instance.lean`
+instantiates everything at both extracted records, the substitution row at a second composite.
+
+### FramedChannelAeneas/Bridge/Zigzag/, Bridge/SeqNum/
+Not yet described here. Both are registered, bridged and certified (`../certificate/zigzag.yaml`,
+`../certificate/seq_num.yaml` name every row); only these navigation entries are missing, and they
+belong to whichever change next touches those units.
 
 ### FramedChannelAeneas/Registry.lean
 The bridge registry, through core `Certify.lean`'s `register%`: every certified bridge theorem

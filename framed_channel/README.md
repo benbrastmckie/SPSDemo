@@ -3,10 +3,14 @@
 A worked example of the verification pipeline on one small piece of software: a framed message
 channel in Rust, built from seven components -- a `RingBuffer`, a list-backed queue (`VecQueue`),
 a LEB128 `Varint` codec, a zigzag signed-varint codec (`Zigzag`), a `Crc8` checksum, an
-HDLC byte-stuffing codec (`Stuff`) and an RFC 1982 sequence number (`SeqNum`) -- plus the composite
-`Channel`: the certified units of this example. Each unit has a Lean model, an interface
-it instantiates, theorems, registry rows and a certificate manifest; the composite is proved from
-the component theorems and the interface laws alone. A Charon/Aeneas extraction of the whole crate
+HDLC byte-stuffing codec (`Stuff`) and an RFC 1982 sequence number (`SeqNum`) -- plus two
+composites, `Channel` and its transparent counterpart `StuffedChannel`: the nine certified units of
+this example. Each unit has a Lean model, an interface
+it instantiates, theorems, registry rows and a certificate manifest; each composite is proved from
+the component theorems and the interface laws alone. `StuffedChannel` is what makes `Stuff`
+load-bearing: it passes the whole frame body through the stuffing codec, so the flag byte reaches
+the wire only as a frame terminator -- the transparency `Channel`'s own framing does not offer, and
+the one claim `Channel` cannot make. A Charon/Aeneas extraction of the whole crate
 is connected to every model by kernel-checked refinement theorems.
 
 The gate requires the `aeneas/` package (the extraction and its bridge proofs), and with it the
@@ -159,10 +163,14 @@ the approved definitions layer, so wrapping it would move the approved digests; 
 records it after the fact, with the retrieval audit not run. The four class instances are recorded
 as `instance`, with no audit claimed.
 
-**Countermodels.** `lean/FramedChannel/Evidence/Countermodels.lean` refutes rejected candidate
-statements in the kernel: the varint theorems without `n < 2 ^ 32`, a receiver that treats a
-second `0x7E` as a new boundary, `idx_ne` with `i ≤ len`, a stuffed encoding that does not expand
-the payload, and an unbounded stuffed-length bound. Each witness is the first failure of
+**Countermodels.** `lean/FramedChannel/Evidence/Countermodels.lean` refutes twelve rejected
+candidate statements in the kernel: the varint theorems without `n < 2 ^ 32`, a receiver that treats
+a second `0x7E` as a new boundary, `idx_ne` with `i ≤ len`, a stuffed encoding that does not expand
+the payload, an unbounded stuffed-length bound, the zigzag bound and encoding bound without their
+`i32`-range hypotheses, zigzag as order-preserving, transitivity and unconditional totality of RFC
+1982's serial comparison, and -- the reason `StuffedChannel` exists -- that the unstuffed
+`Channel`'s wire carries the flag byte nowhere but at a frame boundary. Each witness is the first
+failure of
 a `decide +kernel` search over an explicit enumeration, recorded by `refuted%` into
 `certificate/countermodels.txt`. The search covers only the domain it is given. Nothing imports
 the module, and its theorems are evidence, not registered obligations.
@@ -294,6 +302,7 @@ named without inventing anything.
 | `Zigzag` (`src/zigzag.rs`, free functions) | `zigzag` | `FramedChannel.Zigzag` / `ZigzagI32` | `FramedChannelChallenge.Zigzag`, `FramedChannelAeneasChallenge.Zigzag` | `FramedChannel.Bridge.zigzag` | -- (one model) | `certificate/zigzag.yaml` |
 | `SeqNum` (`src/seq_num.rs`) | `seq_num` | `FramedChannel.SeqNum` / `Serial` | `FramedChannelChallenge.SeqNum`, `FramedChannelAeneasChallenge.SeqNum` | `FramedChannel.Bridge.seq_num` | -- (one model) | `certificate/seq_num.yaml` |
 | `Channel<Q>` (`src/channel.rs`) | `channel` | `FramedChannel.Channel` / `Chan` | `FramedChannelChallenge.Channel`, `FramedChannelAeneasChallenge.Channel` | `FramedChannel.Bridge.channel` | `_RB` / `_VQ` | `certificate/channel.yaml` |
+| `StuffedChannel<Q>` (`src/stuffed_channel.rs`) | `stuffed_channel` | `FramedChannel.StuffedChannel` / `SChan` | `FramedChannelChallenge.StuffedChannel`, `FramedChannelAeneasChallenge.StuffedChannel` | `FramedChannel.Bridge.stuffed_channel` | `_RB` / `_VQ` | `certificate/stuffed_channel.yaml` |
 
 The conventions the table encodes:
 

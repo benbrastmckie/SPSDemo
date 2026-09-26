@@ -23,7 +23,7 @@ Generated files are never edited by hand.
 
 There is one manifest per certified unit: the seven components (ring buffer, list-backed queue,
 varint codec, zigzag signed-varint codec, CRC-8, byte stuffing, RFC 1982 sequence number) plus the
-composite channel. All eight share one shape: `component`, `source`,
+two composites, the channel and the transparent channel. All nine share one shape: `component`, `source`,
 `formal_model`, `bridge`, `implements` (or `composition` for the composite), `assumptions`,
 `guarantees`, `proofs`, `supporting`, `dependencies`, `toolchain`, `coverage`, `trust`,
 `not_claimed`, plus a `specification:` block naming the Challenge modules its `proofs:` are
@@ -70,8 +70,10 @@ those obligations are built from: proved and audited, but not registered.
 | `zigzag.yaml` | the unit defined OVER another: both model laws and two of the four bridge theorems are retrieved from the varint's, which its `ladder` and `findings` blocks record, and its `countermodels` block distinguishes the two boundaries its three refutations pin |
 | `seq_num.yaml` | the unit whose headline is a REFUTATION rather than a theorem: its `coverage.transitivity_of_lt` row blocks the omission of a transitivity law with the kernel countermodel that refutes it, and its `coverage.ladder` row is the one spread deliberately across four rungs |
 | `channel.yaml` | its `composition` block (`send = push ∘ checksum ∘ encode`) and its `findings` block (the length-126 case) |
+| `stuffed_channel.yaml` | the strongest composition claim (three interfaces reached generically, against `channel.yaml`'s one) and, in its `assumptions` and `not_claimed` blocks, the two things it deliberately does NOT claim: composition of `Stuff`'s `CodecLaws`, which is too weak twice over, and that the round trip is a property `Channel` lacks, which it is not. Also its `findings` block, where writing a bridge refinement rather than a test found a reachable panic in the Rust |
 
-`crc8.yaml` and `channel.yaml` each carry a `composite_trust_note` naming their weakest link.
+`crc8.yaml`, `channel.yaml` and `stuffed_channel.yaml` each carry a `composite_trust_note` naming
+their weakest link.
 
 ### Ground classes G0-G5
 
@@ -116,7 +118,7 @@ carry no tag.
 | `[PROVED: compiler-trusting]` | sorry-free but uses `bv_decide` (a native helper axiom is present). Exactly two declarations: `FramedChannel.Crc8.crc8_step_linear` and `FramedChannel.SeqNum.lt_eq_ltRFC`. Each is declared `flagged` in `policy.txt`, registered `verified := false`, scores `0`, and has a kernel replay of the same statement registered beside it (`crc8_step_linear_kernel`, `lt_eq_ltRFC_kernel`) |
 | `[HAND-WRITTEN: model; bridged]` | a hand-written Lean model (`../lean/FramedChannel/Model/`, `Composition/`) in the shape Aeneas produces, connected to the extraction by the bridge proofs in `../aeneas/` |
 | `[HAND-WRITTEN]` | hand-written bridge infrastructure in `../aeneas/FramedChannelAeneas/Bridge/` that is not a model: library step specifications (`Std.lean`), the trait-record assumptions (`Queue/Traits.lean`), the generic queue simulation and its instance (`Queue/Defs.lean`, `Queue/Transport.lean`, `Queue/Instance.lean`), and the per-component abstraction and definitions modules (`<X>/Defs.lean`, `Channel/Abstraction.lean`) |
-| `[EXTRACTED: aeneas + bridge]` | connected to a Charon/Aeneas extraction of the Rust by kernel-checked refinement theorems (`../aeneas/FramedChannelAeneas/Bridge/`). The extractor (rustc MIR, Charon and Aeneas, Aeneas's library models and the crate-local models in `Extracted/FunsExternal.lean`) is trusted, not verified; the tag carries no revision so a pin bump never touches it -- the pinned revisions live in `../../nix/aeneas-pin.json` and `../flake.lock`, with the charon version that produced the committed extraction recorded in `candidates.txt`; no manifest restates them. All eight units carry it |
+| `[EXTRACTED: aeneas + bridge]` | connected to a Charon/Aeneas extraction of the Rust by kernel-checked refinement theorems (`../aeneas/FramedChannelAeneas/Bridge/`). The extractor (rustc MIR, Charon and Aeneas, Aeneas's library models and the crate-local models in `Extracted/FunsExternal.lean`) is trusted, not verified; the tag carries no revision so a pin bump never touches it -- the pinned revisions live in `../../nix/aeneas-pin.json` and `../flake.lock`, with the charon version that produced the committed extraction recorded in `candidates.txt`; no manifest restates them. All nine units carry it |
 | `[AUTHORED: nix-tested]` | Rust written here (manifests only); toolchain from PATH, or pinned by the root `rust-toolchain.toml` (read by `flake.nix`) when used; `../check.sh` runs `cargo fmt --check`, `cargo clippy -D warnings` and the differential tests, locally and in CI (`.github/workflows/ci.yml`, `verify.yml`) |
 | `[NOT CLAIMED]` | explicitly outside the certificate (the compiled binary, concurrency, corruption on the wire) |
 
