@@ -452,8 +452,8 @@ example : bank.length = 112 := by decide
 -- At this many rows, every `decide` over the combined bank -- not only the witness strings --
 -- needs more than the default recursion depth.
 set_option maxRecDepth 4096 in
-/-- One hundred and eighty rows across both packages. -/
-example : allBank.length = 180 := by decide
+/-- One hundred and ninety-two rows across both packages. -/
+example : allBank.length = 192 := by decide
 
 set_option maxRecDepth 4096 in
 /-- Every row, in both packages, names a nonvacuity witness. -/
@@ -464,10 +464,10 @@ example : noOpenScored allBank := noOpenScored_all allBank
 
 set_option maxRecDepth 4096 in
 /-- The kernel-scored total over both packages. -/
-example : totalScore allBank = 470 := by decide
+example : totalScore allBank = 502 := by decide
 
 set_option maxRecDepth 4096 in
 /-- The achievable total over both packages, counting the two compiler-trusting core rows. -/
-example : totalMax allBank = 474 := by decide
+example : totalMax allBank = 506 := by decide
 
 end FramedChannel.Bridge

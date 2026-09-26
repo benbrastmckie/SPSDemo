@@ -1223,6 +1223,355 @@ def queue.VecQueue.Insts.Framed_channelQueueBoundedQueue {T : Type}
     corecloneCloneInst
 }
 
+/-- [framed_channel::receiver::{impl core::fmt::Debug for framed_channel::receiver::Receiver<Q>}::fmt]:
+    Source: 'src/receiver.rs', lines 53:9-53:14
+    Visibility: public -/
+def receiver.Receiver.Insts.CoreFmtDebug.fmt
+  {Q : Type} (corefmtDebugInst : core.fmt.Debug Q) (self : receiver.Receiver Q)
+  (f : core.fmt.Formatter) :
+  Result ((core.result.Result Unit core.fmt.Error) × core.fmt.Formatter)
+  := do
+  let dyn := Dyn.mk _ corefmtDebugInst self.out
+  let dyn1 := Dyn.mk _ (core.fmt.DebugVec core.fmt.DebugU8) self.buf
+  let dyn2 := Dyn.mk _ (core.fmt.DebugShared core.fmt.DebugUsize) self.dropped
+  core.fmt.Formatter.debug_struct_field3_finish f (toStr "Receiver") (toStr
+    "out") dyn (toStr "buf") dyn1 (toStr "dropped") dyn2
+
+/-- Trait implementation: [framed_channel::receiver::{impl core::fmt::Debug for framed_channel::receiver::Receiver<Q>}]
+    Source: 'src/receiver.rs', lines 53:9-53:14 -/
+@[reducible]
+def receiver.Receiver.Insts.CoreFmtDebug {Q : Type} (corefmtDebugInst :
+  core.fmt.Debug Q) : core.fmt.Debug (receiver.Receiver Q) := {
+  fmt := receiver.Receiver.Insts.CoreFmtDebug.fmt corefmtDebugInst
+}
+
+/-- [framed_channel::receiver::{impl core::clone::Clone for framed_channel::receiver::Receiver<Q>}::clone]:
+    Source: 'src/receiver.rs', lines 53:16-53:21
+    Visibility: public -/
+def receiver.Receiver.Insts.CoreCloneClone.clone
+  {Q : Type} (corecloneCloneInst : core.clone.Clone Q)
+  (self : receiver.Receiver Q) :
+  Result (receiver.Receiver Q)
+  := do
+  let t ← corecloneCloneInst.clone self.out
+  let v ← alloc.vec.CloneVec.clone core.clone.CloneU8 self.buf
+  let i ← lift (core.clone.impls.CloneUsize.clone self.dropped)
+  ok { out := t, buf := v, dropped := i }
+
+/-- Trait implementation: [framed_channel::receiver::{impl core::clone::Clone for framed_channel::receiver::Receiver<Q>}]
+    Source: 'src/receiver.rs', lines 53:16-53:21 -/
+@[reducible]
+def receiver.Receiver.Insts.CoreCloneClone {Q : Type} (corecloneCloneInst :
+  core.clone.Clone Q) : core.clone.Clone (receiver.Receiver Q) := {
+  clone := receiver.Receiver.Insts.CoreCloneClone.clone corecloneCloneInst
+}
+
+/-- [framed_channel::receiver::{framed_channel::receiver::Receiver<Q>}::with_queue]:
+    Source: 'src/receiver.rs', lines 73:4-75:5
+    Visibility: public -/
+def receiver.Receiver.with_queue
+  {Q : Type} (queueBoundedQueueQVecU8Inst : queue.BoundedQueue Q (alloc.vec.Vec
+  Std.U8)) (capacity : Std.Usize) :
+  Result (receiver.Receiver Q)
+  := do
+  let t ← queueBoundedQueueQVecU8Inst.with_capacity capacity
+  ok { out := t, buf := (alloc.vec.Vec.new Std.U8), dropped := 0#usize }
+
+/-- [framed_channel::receiver::{framed_channel::receiver::Receiver<framed_channel::ring_buffer::RingBuffer<alloc::vec::Vec<u8>>>}::new]:
+    Source: 'src/receiver.rs', lines 65:4-67:5
+    Visibility: public -/
+def receiver.ReceiverRingBufferVecU8.new
+  (capacity : Std.Usize) :
+  Result (receiver.Receiver (ring_buffer.RingBuffer (alloc.vec.Vec Std.U8)))
+  := do
+  receiver.Receiver.with_queue
+    (ring_buffer.RingBuffer.Insts.Framed_channelQueueBoundedQueue
+    (alloc.vec.Vec.Insts.CoreDefaultDefault Std.U8)
+    (core.clone.CloneallocvecVec core.clone.CloneU8)) capacity
+
+/-- [framed_channel::stuff::MARKER]
+    Source: 'src/stuff.rs', lines 19:0-19:28
+    Visibility: public -/
+@[global_simps, irreducible] def stuff.MARKER : Std.U8 := 126#u8
+
+/-- [framed_channel::stuff::XOR_MASK]
+    Source: 'src/stuff.rs', lines 26:0-26:30
+    Visibility: public -/
+@[global_simps, irreducible] def stuff.XOR_MASK : Std.U8 := 32#u8
+
+/-- [framed_channel::stuff::ESC]
+    Source: 'src/stuff.rs', lines 22:0-22:25
+    Visibility: public -/
+@[global_simps, irreducible] def stuff.ESC : Std.U8 := 125#u8
+
+/-- [framed_channel::stuff::unstuff]: loop body 0:
+    Source: 'src/stuff.rs', lines 80:4-104:1
+    Visibility: public -/
+@[rust_loop_body]
+def stuff.unstuff_loop.body
+  (wire : Slice Std.U8) (out : alloc.vec.Vec Std.U8) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U8) × Std.Usize) (core.result.Result
+    ((alloc.vec.Vec Std.U8) × Std.Usize) stuff.UnstuffError))
+  := do
+  let i1 := Slice.len wire
+  if i < i1
+  then
+    let o ←
+      core.slice.Slice.get (core.slice.index.SliceIndexUsizeSlice Std.U8) wire
+        i
+    match o with
+    | none => ok (done (core.result.Result.Err stuff.UnstuffError.Truncated))
+    | some b =>
+      if b = stuff.MARKER
+      then let i2 ← i + 1#usize
+           ok (done (core.result.Result.Ok (out, i2)))
+      else
+        if b = stuff.ESC
+        then
+          let i2 ← i + 1#usize
+          let o1 ←
+            core.slice.Slice.get (core.slice.index.SliceIndexUsizeSlice Std.U8)
+              wire i2
+          match o1 with
+          | none =>
+            ok (done (core.result.Result.Err stuff.UnstuffError.Truncated))
+          | some c =>
+            let i3 ← lift (stuff.MARKER ^^^ stuff.XOR_MASK)
+            if c != i3
+            then
+              let i4 ← lift (stuff.ESC ^^^ stuff.XOR_MASK)
+              if c != i4
+              then
+                ok (done (core.result.Result.Err stuff.UnstuffError.BadEscape))
+              else
+                let i5 ← lift (c ^^^ stuff.XOR_MASK)
+                let out1 ← alloc.vec.Vec.push out i5
+                let i6 ← i + 2#usize
+                ok (cont (out1, i6))
+            else
+              let i4 ← lift (c ^^^ stuff.XOR_MASK)
+              let out1 ← alloc.vec.Vec.push out i4
+              let i5 ← i + 2#usize
+              ok (cont (out1, i5))
+        else
+          let out1 ← alloc.vec.Vec.push out b
+          let i2 ← i + 1#usize
+          ok (cont (out1, i2))
+  else ok (done (core.result.Result.Err stuff.UnstuffError.Truncated))
+
+/-- [framed_channel::stuff::unstuff]: loop 0:
+    Source: 'src/stuff.rs', lines 80:4-104:1
+    Visibility: public -/
+@[rust_loop]
+def stuff.unstuff_loop
+  (wire : Slice Std.U8) (out : alloc.vec.Vec Std.U8) (i : Std.Usize) :
+  Result (core.result.Result ((alloc.vec.Vec Std.U8) × Std.Usize)
+    stuff.UnstuffError)
+  := do
+  loop
+    (fun (out1, i1) => stuff.unstuff_loop.body wire out1 i1)
+    (out, i)
+
+/-- [framed_channel::stuff::unstuff]:
+    Source: 'src/stuff.rs', lines 77:0-104:1
+    Visibility: public -/
+@[reducible]
+def stuff.unstuff
+  (wire : Slice Std.U8) :
+  Result (core.result.Result ((alloc.vec.Vec Std.U8) × Std.Usize)
+    stuff.UnstuffError)
+  := do
+  stuff.unstuff_loop wire (alloc.vec.Vec.new Std.U8) 0#usize
+
+/-- [framed_channel::stuffed_channel::parse_stuffed]:
+    Source: 'src/stuffed_channel.rs', lines 68:0-93:1
+    Visibility: public -/
+def stuffed_channel.parse_stuffed
+  (wire : Slice Std.U8) :
+  Result (Option ((alloc.vec.Vec Std.U8) × Std.Usize))
+  := do
+  let r ← stuff.unstuff wire
+  match r with
+  | core.result.Result.Ok p =>
+    let (frame, used) := p
+    let s := alloc.vec.Vec.deref frame
+    let r1 ← varint.decode_u32 s
+    match r1 with
+    | core.result.Result.Ok p1 =>
+      let (n, consumed) := p1
+      let n1 ← lift (UScalar.cast .Usize n)
+      let s1 := alloc.vec.Vec.deref frame
+      let o ←
+        core.slice.Slice.get (core.slice.index.SliceIndexRangeFromUsizeSlice
+          Std.U8) s1 { start := consumed }
+      let cf ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o
+      match cf with
+      | core.ops.control_flow.ControlFlow.Continue val =>
+        let o1 ←
+          core.slice.Slice.get (core.slice.index.SliceIndexRangeToUsizeSlice
+            Std.U8) val { «end» := n1 }
+        let cf1 ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o1
+        match cf1 with
+        | core.ops.control_flow.ControlFlow.Continue val1 =>
+          let payload ← alloc.slice.Slice.to_vec core.clone.CloneU8 val1
+          let o2 ←
+            core.slice.Slice.get
+              (core.slice.index.SliceIndexRangeFromUsizeSlice Std.U8) val
+              { start := n1 }
+          let cf2 ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o2
+          match cf2 with
+          | core.ops.control_flow.ControlFlow.Continue val2 =>
+            let i := Slice.len val2
+            if i != 1#usize
+            then ok none
+            else
+              let o3 ←
+                core.slice.Slice.get (core.slice.index.SliceIndexUsizeSlice
+                  Std.U8) val n1
+              let cf3 ←
+                core.option.Option.Insts.CoreOpsTry_traitTry.branch o3
+              match cf3 with
+              | core.ops.control_flow.ControlFlow.Continue val3 =>
+                let s2 := alloc.vec.Vec.deref payload
+                let i1 ← crc8.crc8 s2
+                if val3 != i1
+                then ok none
+                else ok (some (payload, used))
+              | core.ops.control_flow.ControlFlow.Break residual =>
+                core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionNever.from_residual
+                  ((alloc.vec.Vec Std.U8) × Std.Usize) residual
+          | core.ops.control_flow.ControlFlow.Break residual =>
+            core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionNever.from_residual
+              ((alloc.vec.Vec Std.U8) × Std.Usize) residual
+        | core.ops.control_flow.ControlFlow.Break residual =>
+          core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionNever.from_residual
+            ((alloc.vec.Vec Std.U8) × Std.Usize) residual
+      | core.ops.control_flow.ControlFlow.Break residual =>
+        core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionNever.from_residual
+          ((alloc.vec.Vec Std.U8) × Std.Usize) residual
+    | core.result.Result.Err _ => ok none
+  | core.result.Result.Err _ => ok none
+
+/-- [framed_channel::receiver::{framed_channel::receiver::Receiver<Q>}::finish_run]:
+    Source: 'src/receiver.rs', lines 112:4-131:5 -/
+def receiver.Receiver.finish_run
+  {Q : Type} (queueBoundedQueueQVecU8Inst : queue.BoundedQueue Q (alloc.vec.Vec
+  Std.U8)) (self : receiver.Receiver Q) :
+  Result (receiver.Receiver Q)
+  := do
+  let b ← alloc.vec.Vec.is_empty Global self.buf
+  if b
+  then ok self
+  else
+    let v ← alloc.vec.Vec.push self.buf stuff.MARKER
+    let s := alloc.vec.Vec.deref v
+    let o ← stuffed_channel.parse_stuffed s
+    let (t, i) ←
+      match o with
+      | none =>
+        do
+        let i1 ← lift (core.num.Usize.saturating_add self.dropped 1#usize)
+        ok (self.out, i1)
+      | some p =>
+        do
+        let (payload, _) := p
+        let (r, t1) ← queueBoundedQueueQVecU8Inst.push self.out payload
+        let i1 ←
+          match r with
+          | core.result.Result.Ok _ => ok self.dropped
+          | core.result.Result.Err _ =>
+            ok (core.num.Usize.saturating_add self.dropped 1#usize)
+        ok (t1, i1)
+    ok { out := t, buf := (alloc.vec.Vec.new Std.U8), dropped := i }
+
+/-- [framed_channel::receiver::{framed_channel::receiver::Receiver<Q>}::feed]: loop body 0:
+    Source: 'src/receiver.rs', lines 85:8-97:5
+    Visibility: public -/
+@[rust_loop_body]
+def receiver.Receiver.feed_loop.body
+  {Q : Type} (queueBoundedQueueQVecU8Inst : queue.BoundedQueue Q (alloc.vec.Vec
+  Std.U8)) (bytes : Slice Std.U8) (self : receiver.Receiver Q) (i : Std.Usize)
+  :
+  Result (ControlFlow ((receiver.Receiver Q) × Std.Usize) (receiver.Receiver
+    Q))
+  := do
+  let i1 := Slice.len bytes
+  if i < i1
+  then
+    let o ←
+      core.slice.Slice.get (core.slice.index.SliceIndexUsizeSlice Std.U8) bytes
+        i
+    match o with
+    | none => ok (done self)
+    | some b =>
+      let self1 ←
+        if b = stuff.MARKER
+        then receiver.Receiver.finish_run queueBoundedQueueQVecU8Inst self
+        else
+          do
+          let v ← alloc.vec.Vec.push self.buf b
+          ok { self with buf := v }
+      let i2 ← i + 1#usize
+      ok (cont (self1, i2))
+  else ok (done self)
+
+/-- [framed_channel::receiver::{framed_channel::receiver::Receiver<Q>}::feed]: loop 0:
+    Source: 'src/receiver.rs', lines 85:8-97:5
+    Visibility: public -/
+@[rust_loop]
+def receiver.Receiver.feed_loop
+  {Q : Type} (queueBoundedQueueQVecU8Inst : queue.BoundedQueue Q (alloc.vec.Vec
+  Std.U8)) (self : receiver.Receiver Q) (bytes : Slice Std.U8) (i : Std.Usize)
+  :
+  Result (receiver.Receiver Q)
+  := do
+  loop
+    (fun (self1, i1) => receiver.Receiver.feed_loop.body
+      queueBoundedQueueQVecU8Inst bytes self1 i1)
+    (self, i)
+
+/-- [framed_channel::receiver::{framed_channel::receiver::Receiver<Q>}::feed]:
+    Source: 'src/receiver.rs', lines 83:4-97:5
+    Visibility: public -/
+@[reducible]
+def receiver.Receiver.feed
+  {Q : Type} (queueBoundedQueueQVecU8Inst : queue.BoundedQueue Q (alloc.vec.Vec
+  Std.U8)) (self : receiver.Receiver Q) (bytes : Slice Std.U8) :
+  Result (receiver.Receiver Q)
+  := do
+  receiver.Receiver.feed_loop queueBoundedQueueQVecU8Inst self bytes 0#usize
+
+/-- [framed_channel::receiver::{framed_channel::receiver::Receiver<Q>}::poll]:
+    Source: 'src/receiver.rs', lines 134:4-136:5
+    Visibility: public -/
+def receiver.Receiver.poll
+  {Q : Type} (queueBoundedQueueQVecU8Inst : queue.BoundedQueue Q (alloc.vec.Vec
+  Std.U8)) (self : receiver.Receiver Q) :
+  Result ((Option (alloc.vec.Vec Std.U8)) × (receiver.Receiver Q))
+  := do
+  let (o, t) ← queueBoundedQueueQVecU8Inst.pop self.out
+  ok (o, { self with out := t })
+
+/-- [framed_channel::receiver::{framed_channel::receiver::Receiver<Q>}::dropped]:
+    Source: 'src/receiver.rs', lines 139:4-141:5
+    Visibility: public -/
+def receiver.Receiver.impl.dropped
+  {Q : Type} (queueBoundedQueueQVecU8Inst : queue.BoundedQueue Q (alloc.vec.Vec
+  Std.U8)) (self : receiver.Receiver Q) :
+  Result Std.Usize
+  := do
+  ok self.dropped
+
+/-- [framed_channel::receiver::{framed_channel::receiver::Receiver<Q>}::queued]:
+    Source: 'src/receiver.rs', lines 145:4-147:5
+    Visibility: public -/
+def receiver.Receiver.queued
+  {Q : Type} (queueBoundedQueueQVecU8Inst : queue.BoundedQueue Q (alloc.vec.Vec
+  Std.U8)) (self : receiver.Receiver Q) :
+  Result Std.Usize
+  := do
+  queueBoundedQueueQVecU8Inst.len self.out
+
 /-- [framed_channel::ring_buffer::{impl core::fmt::Debug for framed_channel::ring_buffer::Full}::fmt]:
     Source: 'src/ring_buffer.rs', lines 17:9-17:14
     Visibility: public -/
@@ -1476,21 +1825,6 @@ def seq_num.SeqNum.lt
   then ok (d < seq_num.HALF)
   else ok false
 
-/-- [framed_channel::stuff::MARKER]
-    Source: 'src/stuff.rs', lines 19:0-19:28
-    Visibility: public -/
-@[global_simps, irreducible] def stuff.MARKER : Std.U8 := 126#u8
-
-/-- [framed_channel::stuff::ESC]
-    Source: 'src/stuff.rs', lines 22:0-22:25
-    Visibility: public -/
-@[global_simps, irreducible] def stuff.ESC : Std.U8 := 125#u8
-
-/-- [framed_channel::stuff::XOR_MASK]
-    Source: 'src/stuff.rs', lines 26:0-26:30
-    Visibility: public -/
-@[global_simps, irreducible] def stuff.XOR_MASK : Std.U8 := 32#u8
-
 /-- [framed_channel::stuff::{impl core::fmt::Debug for framed_channel::stuff::UnstuffError}::fmt]:
     Source: 'src/stuff.rs', lines 29:9-29:14
     Visibility: public -/
@@ -1638,85 +1972,6 @@ def stuff.encode_frame
   let out1 ← stuff.stuff payload out
   alloc.vec.Vec.push out1 stuff.MARKER
 
-/-- [framed_channel::stuff::unstuff]: loop body 0:
-    Source: 'src/stuff.rs', lines 80:4-104:1
-    Visibility: public -/
-@[rust_loop_body]
-def stuff.unstuff_loop.body
-  (wire : Slice Std.U8) (out : alloc.vec.Vec Std.U8) (i : Std.Usize) :
-  Result (ControlFlow ((alloc.vec.Vec Std.U8) × Std.Usize) (core.result.Result
-    ((alloc.vec.Vec Std.U8) × Std.Usize) stuff.UnstuffError))
-  := do
-  let i1 := Slice.len wire
-  if i < i1
-  then
-    let o ←
-      core.slice.Slice.get (core.slice.index.SliceIndexUsizeSlice Std.U8) wire
-        i
-    match o with
-    | none => ok (done (core.result.Result.Err stuff.UnstuffError.Truncated))
-    | some b =>
-      if b = stuff.MARKER
-      then let i2 ← i + 1#usize
-           ok (done (core.result.Result.Ok (out, i2)))
-      else
-        if b = stuff.ESC
-        then
-          let i2 ← i + 1#usize
-          let o1 ←
-            core.slice.Slice.get (core.slice.index.SliceIndexUsizeSlice Std.U8)
-              wire i2
-          match o1 with
-          | none =>
-            ok (done (core.result.Result.Err stuff.UnstuffError.Truncated))
-          | some c =>
-            let i3 ← lift (stuff.MARKER ^^^ stuff.XOR_MASK)
-            if c != i3
-            then
-              let i4 ← lift (stuff.ESC ^^^ stuff.XOR_MASK)
-              if c != i4
-              then
-                ok (done (core.result.Result.Err stuff.UnstuffError.BadEscape))
-              else
-                let i5 ← lift (c ^^^ stuff.XOR_MASK)
-                let out1 ← alloc.vec.Vec.push out i5
-                let i6 ← i + 2#usize
-                ok (cont (out1, i6))
-            else
-              let i4 ← lift (c ^^^ stuff.XOR_MASK)
-              let out1 ← alloc.vec.Vec.push out i4
-              let i5 ← i + 2#usize
-              ok (cont (out1, i5))
-        else
-          let out1 ← alloc.vec.Vec.push out b
-          let i2 ← i + 1#usize
-          ok (cont (out1, i2))
-  else ok (done (core.result.Result.Err stuff.UnstuffError.Truncated))
-
-/-- [framed_channel::stuff::unstuff]: loop 0:
-    Source: 'src/stuff.rs', lines 80:4-104:1
-    Visibility: public -/
-@[rust_loop]
-def stuff.unstuff_loop
-  (wire : Slice Std.U8) (out : alloc.vec.Vec Std.U8) (i : Std.Usize) :
-  Result (core.result.Result ((alloc.vec.Vec Std.U8) × Std.Usize)
-    stuff.UnstuffError)
-  := do
-  loop
-    (fun (out1, i1) => stuff.unstuff_loop.body wire out1 i1)
-    (out, i)
-
-/-- [framed_channel::stuff::unstuff]:
-    Source: 'src/stuff.rs', lines 77:0-104:1
-    Visibility: public -/
-@[reducible]
-def stuff.unstuff
-  (wire : Slice Std.U8) :
-  Result (core.result.Result ((alloc.vec.Vec Std.U8) × Std.Usize)
-    stuff.UnstuffError)
-  := do
-  stuff.unstuff_loop wire (alloc.vec.Vec.new Std.U8) 0#usize
-
 /-- [framed_channel::stuffed_channel::body]:
     Source: 'src/stuffed_channel.rs', lines 45:0-51:1 -/
 def stuffed_channel.body
@@ -1738,75 +1993,6 @@ def stuffed_channel.encode_stuffed
   let frame ← stuffed_channel.body payload len
   let s := alloc.vec.Vec.deref frame
   stuff.encode_frame s out
-
-/-- [framed_channel::stuffed_channel::parse_stuffed]:
-    Source: 'src/stuffed_channel.rs', lines 68:0-93:1
-    Visibility: public -/
-def stuffed_channel.parse_stuffed
-  (wire : Slice Std.U8) :
-  Result (Option ((alloc.vec.Vec Std.U8) × Std.Usize))
-  := do
-  let r ← stuff.unstuff wire
-  match r with
-  | core.result.Result.Ok p =>
-    let (frame, used) := p
-    let s := alloc.vec.Vec.deref frame
-    let r1 ← varint.decode_u32 s
-    match r1 with
-    | core.result.Result.Ok p1 =>
-      let (n, consumed) := p1
-      let n1 ← lift (UScalar.cast .Usize n)
-      let s1 := alloc.vec.Vec.deref frame
-      let o ←
-        core.slice.Slice.get (core.slice.index.SliceIndexRangeFromUsizeSlice
-          Std.U8) s1 { start := consumed }
-      let cf ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o
-      match cf with
-      | core.ops.control_flow.ControlFlow.Continue val =>
-        let o1 ←
-          core.slice.Slice.get (core.slice.index.SliceIndexRangeToUsizeSlice
-            Std.U8) val { «end» := n1 }
-        let cf1 ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o1
-        match cf1 with
-        | core.ops.control_flow.ControlFlow.Continue val1 =>
-          let payload ← alloc.slice.Slice.to_vec core.clone.CloneU8 val1
-          let o2 ←
-            core.slice.Slice.get
-              (core.slice.index.SliceIndexRangeFromUsizeSlice Std.U8) val
-              { start := n1 }
-          let cf2 ← core.option.Option.Insts.CoreOpsTry_traitTry.branch o2
-          match cf2 with
-          | core.ops.control_flow.ControlFlow.Continue val2 =>
-            let i := Slice.len val2
-            if i != 1#usize
-            then ok none
-            else
-              let o3 ←
-                core.slice.Slice.get (core.slice.index.SliceIndexUsizeSlice
-                  Std.U8) val n1
-              let cf3 ←
-                core.option.Option.Insts.CoreOpsTry_traitTry.branch o3
-              match cf3 with
-              | core.ops.control_flow.ControlFlow.Continue val3 =>
-                let s2 := alloc.vec.Vec.deref payload
-                let i1 ← crc8.crc8 s2
-                if val3 != i1
-                then ok none
-                else ok (some (payload, used))
-              | core.ops.control_flow.ControlFlow.Break residual =>
-                core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionNever.from_residual
-                  ((alloc.vec.Vec Std.U8) × Std.Usize) residual
-          | core.ops.control_flow.ControlFlow.Break residual =>
-            core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionNever.from_residual
-              ((alloc.vec.Vec Std.U8) × Std.Usize) residual
-        | core.ops.control_flow.ControlFlow.Break residual =>
-          core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionNever.from_residual
-            ((alloc.vec.Vec Std.U8) × Std.Usize) residual
-      | core.ops.control_flow.ControlFlow.Break residual =>
-        core.option.Option.Insts.CoreOpsTry_traitFromResidualOptionNever.from_residual
-          ((alloc.vec.Vec Std.U8) × Std.Usize) residual
-    | core.result.Result.Err _ => ok none
-  | core.result.Result.Err _ => ok none
 
 /-- [framed_channel::stuffed_channel::drop_front]:
     Source: 'src/stuffed_channel.rs', lines 97:0-102:1 -/

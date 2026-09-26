@@ -2,7 +2,7 @@
 /-
 HAND-WRITTEN, NOT GENERATED. The crate's trusted library models, crate-local.
 
-The generated `Funs.lean` imports this module: it supplies the five library functions the
+The generated `Funs.lean` imports this module: it supplies the six library functions the
 framed_channel crate calls but the pinned Aeneas Lean library does not model. Each is a
 definition with a proved `@[step]` spec (except `from_residual`, whose only residual is `None`),
 mirroring the shape of Aeneas's own models (`Result`'s `Try`/`FromResidual`, `Vec.new`,
@@ -65,6 +65,13 @@ def alloc.vec.Vec.remove
       (by have h1 := v.property; rw [List.length_eraseIdx]; split <;> omega))
   else fail .panic
 
+/-- Rust `Vec::is_empty`: whether the vector has no elements. Never panics. Reached from
+`receiver.rs`'s `finish_run`, whose idle-flag early return tests the buffered run for emptiness. -/
+@[rust_fun "alloc::vec::{alloc::vec::Vec<@T>}::is_empty"]
+def alloc.vec.Vec.is_empty
+  {T : Type} (_A : Type) (v : alloc.vec.Vec T) : Result Bool :=
+  ok v.val.isEmpty
+
 /-- Rust `<Vec<T> as Default>::default`: the empty vector, as `Vec::new`. -/
 @[rust_fun
   "alloc::vec::{core::default::Default<alloc::vec::Vec<@T>>}::default"]
@@ -91,6 +98,11 @@ theorem alloc.vec.Vec.remove.spec {T : Type} (A : Type) (v : alloc.vec.Vec T) (i
     (h : i.val < v.length) :
     alloc.vec.Vec.remove A v i ⦃ x v' => x = v.val[i.val] ∧ v'.val = v.val.eraseIdx i.val ⦄ := by
   simp [alloc.vec.Vec.remove, h]
+
+@[step]
+theorem alloc.vec.Vec.is_empty.spec {T : Type} (A : Type) (v : alloc.vec.Vec T) :
+    alloc.vec.Vec.is_empty A v ⦃ b => b = v.val.isEmpty ⦄ := by
+  simp [alloc.vec.Vec.is_empty]
 
 @[step]
 theorem alloc.vec.Vec.Insts.CoreDefaultDefault.default.spec (T : Type) :

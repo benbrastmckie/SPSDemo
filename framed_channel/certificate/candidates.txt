@@ -3,7 +3,7 @@
 # extraction joined: aeneas/FramedChannelAeneas/Extracted/Funs.lean (by source span)
 # crate forbids unsafe_code (rust/src/lib.rs): yes
 # translated declarations matching the concurrency/IO/interior-mutability denylist: 0
-# items: 107 local; 107 in-subset; 0 excluded; 30 derived impls
+# items: 116 local; 116 in-subset; 0 excluded; 32 derived impls
 # scope: syntactic checks over the crate's own LLBC items; std internals are not audited (G3)
 # columns: lean_name	rust_path	span	visibility	kind	derived	verdict	reason
 framed_channel.channel.Channel.Insts.CoreCloneClone.clone	framed_channel::channel::{impl core::clone::Clone}::clone	src/channel.rs:96:16-96:21	pub	trait-impl	derived:Clone	in-subset	-
@@ -48,6 +48,15 @@ framed_channel.queue.VecQueue.len	framed_channel::queue::{impl}::len	src/queue.r
 framed_channel.queue.VecQueue.pop	framed_channel::queue::{impl}::pop	src/queue.rs:108:4-114:5	pub	fn	-	in-subset	-
 framed_channel.queue.VecQueue.push	framed_channel::queue::{impl}::push	src/queue.rs:98:4-104:5	pub	fn	-	in-subset	-
 framed_channel.queue.VecQueue.with_capacity	framed_channel::queue::{impl}::with_capacity	src/queue.rs:64:4-66:5	pub	fn	-	in-subset	-
+framed_channel.receiver.Receiver.Insts.CoreCloneClone.clone	framed_channel::receiver::{impl core::clone::Clone}::clone	src/receiver.rs:53:16-53:21	pub	trait-impl	derived:Clone	in-subset	-
+framed_channel.receiver.Receiver.Insts.CoreFmtDebug.fmt	framed_channel::receiver::{impl core::fmt::Debug}::fmt	src/receiver.rs:53:9-53:14	pub	trait-impl	derived:Debug	in-subset	-
+framed_channel.receiver.Receiver.feed	framed_channel::receiver::{impl}::feed	src/receiver.rs:83:4-97:5	pub	fn	-	in-subset	-
+framed_channel.receiver.Receiver.finish_run	framed_channel::receiver::{impl}::finish_run	src/receiver.rs:112:4-131:5	priv	fn	-	in-subset	-
+framed_channel.receiver.Receiver.impl.dropped	framed_channel::receiver::{impl}::dropped	src/receiver.rs:139:4-141:5	pub	fn	-	in-subset	-
+framed_channel.receiver.Receiver.poll	framed_channel::receiver::{impl}::poll	src/receiver.rs:134:4-136:5	pub	fn	-	in-subset	-
+framed_channel.receiver.Receiver.queued	framed_channel::receiver::{impl}::queued	src/receiver.rs:145:4-147:5	pub	fn	-	in-subset	-
+framed_channel.receiver.Receiver.with_queue	framed_channel::receiver::{impl}::with_queue	src/receiver.rs:73:4-75:5	pub	fn	-	in-subset	-
+framed_channel.receiver.ReceiverRingBufferVecU8.new	framed_channel::receiver::{impl}::new	src/receiver.rs:65:4-67:5	pub	fn	-	in-subset	-
 framed_channel.ring_buffer.Full.Insts.CoreCloneClone.clone	framed_channel::ring_buffer::{impl core::clone::Clone}::clone	src/ring_buffer.rs:17:16-17:21	pub	trait-impl	derived:Clone	in-subset	-
 framed_channel.ring_buffer.Full.Insts.CoreCmpEq.assert_fields_are_eq	framed_channel::ring_buffer::{impl core::cmp::Eq}::assert_fields_are_eq	src/ring_buffer.rs:17:40-17:42	pub	trait-impl	derived:Eq	in-subset	-
 framed_channel.ring_buffer.Full.Insts.CoreCmpPartialEqFull.eq	framed_channel::ring_buffer::{impl core::cmp::PartialEq}::eq	src/ring_buffer.rs:17:29-17:38	pub	trait-impl	derived:PartialEq	in-subset	-

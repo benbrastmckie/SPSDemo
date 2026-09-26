@@ -81,11 +81,13 @@ structure queue.VecQueue (T : Type) where
   items : alloc.vec.Vec T
   cap : Std.Usize
 
-/-- [framed_channel::seq_num::SeqNum]
-    Source: 'src/seq_num.rs', lines 35:0-37:1
+/-- [framed_channel::receiver::Receiver]
+    Source: 'src/receiver.rs', lines 54:0-58:1
     Visibility: public -/
-structure seq_num.SeqNum where
-  value : Std.U16
+structure receiver.Receiver (Q : Type) where
+  out : Q
+  buf : alloc.vec.Vec Std.U8
+  dropped : Std.Usize
 
 /-- [framed_channel::stuff::UnstuffError]
     Source: 'src/stuff.rs', lines 30:0-36:1
@@ -94,6 +96,12 @@ structure seq_num.SeqNum where
 inductive stuff.UnstuffError where
 | Truncated : stuff.UnstuffError
 | BadEscape : stuff.UnstuffError
+
+/-- [framed_channel::seq_num::SeqNum]
+    Source: 'src/seq_num.rs', lines 35:0-37:1
+    Visibility: public -/
+structure seq_num.SeqNum where
+  value : Std.U16
 
 /-- [framed_channel::stuffed_channel::StuffedChannel]
     Source: 'src/stuffed_channel.rs', lines 107:0-111:1
