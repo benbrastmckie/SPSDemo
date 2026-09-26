@@ -153,15 +153,22 @@ mirror of `usize_saturating_sub_spec` above, which `stuffed_channel.rs`'s `in_fl
 reaches for the same reason. -/
 @[step]
 theorem usize_saturating_add_spec (x y : Usize) :
-    lift (core.num.Usize.saturating_add x y)
-      ⦃ z => z.val = min (UScalar.max UScalarTy.Usize) (x.val + y.val) ⦄ := by
-  simp [lift, core.num.Usize.saturating_add, UScalar.saturating_add]
-  have hmax : UScalar.max UScalarTy.Usize < 2 ^ System.Platform.numBits := by
-    rw [UScalar.max]
-    have h0 : (0 : Nat) < 2 ^ (UScalarTy.Usize).numBits := Nat.two_pow_pos _
-    simp [UScalarTy.numBits] at h0 ⊢
+    lift (core.num.Usize.saturating_add x y) ⦃ z => z.val = min Usize.max (x.val + y.val) ⦄ := by
+  simp [lift, core.num.Usize.saturating_add, UScalar.saturating_add, UScalar.max_USize_eq]
+  have hmax : Usize.max < 2 ^ System.Platform.numBits := by
+    rw [Usize.max]
+    have h0 : (0 : Nat) < 2 ^ Usize.numBits := Nat.two_pow_pos _
+    simp [Usize.numBits] at h0 ⊢
   simp only [UScalar.val]
   exact Nat.mod_eq_of_lt (by omega)
+
+/-- The same computation, unlifted: the extraction calls `saturating_add` both inside a `lift` (where
+`usize_saturating_add_spec` applies) and as a pure expression (`ok (saturating_add …)`), and the
+second shape needs a plain equation rather than a `@[step]` spec. -/
+theorem usize_saturating_add_val (x y : Usize) :
+    (core.num.Usize.saturating_add x y).val = min Usize.max (x.val + y.val) := by
+  have h := usize_saturating_add_spec x y
+  simpa [lift, WP.spec] using h
 
 end FramedChannel.Bridge
 
@@ -174,3 +181,4 @@ end FramedChannel.Bridge
 #print axioms FramedChannel.Bridge.slice_get_range_to_spec
 #print axioms FramedChannel.Bridge.usize_saturating_sub_spec
 #print axioms FramedChannel.Bridge.usize_saturating_add_spec
+#print axioms FramedChannel.Bridge.usize_saturating_add_val
