@@ -8,6 +8,7 @@ import FramedChannelAeneasChallenge.Stuff
 import FramedChannelAeneasChallenge.Crc8
 import FramedChannelAeneasChallenge.SeqNum
 import FramedChannelAeneasChallenge.Channel
+import FramedChannelAeneasChallenge.StuffedChannel
 
 /-!
 # FramedChannelAeneasChallenge: the bridge package's approved specification

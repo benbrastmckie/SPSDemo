@@ -34,6 +34,12 @@ import FramedChannelAeneas.Bridge.Channel.Frame
 import FramedChannelAeneas.Bridge.Channel.Refinement
 import FramedChannelAeneas.Bridge.Channel.Composite
 import FramedChannelAeneas.Bridge.Channel.Instance
+import FramedChannelAeneas.Bridge.StuffedChannel.Defs
+import FramedChannelAeneas.Bridge.StuffedChannel.Abstraction
+import FramedChannelAeneas.Bridge.StuffedChannel.Frame
+import FramedChannelAeneas.Bridge.StuffedChannel.Refinement
+import FramedChannelAeneas.Bridge.StuffedChannel.Composite
+import FramedChannelAeneas.Bridge.StuffedChannel.Instance
 
 /-!
 # Registry: the bridge package's rows, and the combined bank
@@ -114,6 +120,18 @@ trait, whose component-independent bridge (`QueueSim` and the transport theorems
   `send_discharges_not_full_extracted` as `E1`); and the substitution rows at both extracted
   queues: the idle constructors `new_idle_RB` and `with_queue_idle_VQ` as `E1`, and the `_RB`/`_VQ`
   instantiations and the constructor headlines `send_deliver_from_new_RB`/`_VQ` as `E2`.
+* The extracted transparent channel (`Bridge/StuffedChannel/`), the same shape at the second
+  composite: the frame codec refinements `body_refines`, `encode_stuffed_refines` and
+  `parse_stuffed_refines`, the extracted round trip, and `wire_flag_free_extracted` -- the
+  transparency claim on the extracted side, which is this unit's reason to exist -- all as `E2`;
+  the per-operation refinements over any lawful queue record, `send_refines` and `deliver_refines`
+  as `E2`, `take_refines` and `queued_agrees` as `E1`; the composition theorems at the extracted
+  code, with the same `E2`/`E1` split as the channel's; and the substitution rows at both extracted
+  queues. `parse_stuffed_refines`' postcondition carries exactly one divergence disjunct, the
+  varint layer's, where the channel's carried the same one: the stuffing layer contributes none,
+  `stuff.decode_err_iff` being an exact iff. There is no length-126 row here and none is owed: the
+  marker byte in a length prefix is stuffed away, and the round trip already holds at every payload
+  including marker-bearing ones with no hypothesis.
 
 Deliberately not registered: the `Aeneas` step lemmas `set_spec`/`get_spec` and `set_opt_some`,
 the `BQ` lifting lemmas `pushBQ_of_push`/`popBQ_of_pop`, `len_agrees` (an input to
@@ -139,7 +157,15 @@ rows derived from it. In the channel bridge, the abstraction (`vecOfFrame`, `ofF
 `ofFrame_bitsOf`, `frameOK_fits`, `u32_max_le_usize_max`, `bitsOf_eq_bytesOf_map`), the parser
 helpers of `Bridge/Channel/Frame.lean`, `drop_front_refines`, `not_declaresWide_encodeFrame`,
 `hovf_of_inv`, the generic `with_queue_idle` and each queue's `with_capacity_rel` are supporting.
-They are proved and audited, and listed under `supporting:` in the
+The transparent channel bridge keeps the same set supporting, name for name where the name exists:
+its byte and slice plumbing (`val_eq_bv_toNat`, `slice_drop_val`, `bytesOf_drop`, `bytesOf_take`,
+`bytesOf_len`, `bytesOf_eq_map_toNat`, `map_ofNat_bytesOf`, `bytesOf_eq_varint_bytesOf`,
+`bytesOf_cons`, `bits_of_bytes`), the three component-tag spellings (`encode_hdlc`, `decode_hdlc`,
+`digest_bitwise`), the body shape lemmas (`body_eq`, `encodeStuffed_eq`, `body_length`,
+`body_length_le`, `decode_body`), the model-parser equations (`parseStuffed_decode_fail`,
+`parseStuffed_varint_fail`, `parseStuffed_step`), `drop_front_refines`,
+`not_declaresWide_encodeStuffed`, `hovf_of_inv` and the generic `with_queue_idle`.
+All of these are proved and audited, and listed under `supporting:` in the
 manifests; they are not obligations.
 
 ## The combined bank
@@ -355,7 +381,57 @@ def items : List CertifiedItem :=
     register% channel.send_deliver_from_new_RB ItemType.E2 2 true 3615146268
       "from Channel::new, send then deliver returns exactly the payload and queued is 1",
     register% channel.send_deliver_from_new_VQ ItemType.E2 2 true 3003114898
-      "from Channel::with_queue at VecQueue, send then deliver returns the payload and queued is 1" ]
+      "from Channel::with_queue at VecQueue, send then deliver returns the payload and queued is 1",
+    -- The extracted transparent frame codec (E2)
+    register% stuffed_channel.body_refines ItemType.E2 2 true 885567149
+      "the extracted body is exactly StuffedChannel.body, via the component refinements",
+    register% stuffed_channel.encode_stuffed_refines ItemType.E2 2 true 1503288945
+      "the extracted encode_stuffed appends exactly StuffedChannel.encodeStuffed",
+    register% stuffed_channel.parse_stuffed_refines ItemType.E2 2 true 1890771692
+      "the extracted parse_stuffed agrees with parseStuffed, the wide-length divergence stated",
+    register% stuffed_channel.parse_stuffed_encode_stuffed_extracted ItemType.E2 2 true 1691742109
+      "the extracted parser returns exactly a stuffed payload and consumes exactly its frame",
+    register% stuffed_channel.wire_flag_free_extracted ItemType.E2 2 true 83924376
+      "TRANSPARENCY: the extracted encoder writes the flag nowhere but at the frame terminator",
+    -- The extracted transparent channel's operations, over any lawful queue record
+    register% stuffed_channel.send_refines ItemType.E2 2 true 3038551081
+      "the extracted send refines StuffedChannel.send over any simulating queue record",
+    register% stuffed_channel.deliver_refines ItemType.E2 2 true 2682277024
+      "the extracted deliver refines StuffedChannel.deliver over any simulating queue record",
+    register% stuffed_channel.take_refines ItemType.E1 1 true 1050190484
+      "the extracted take pops what the specification queue pops",
+    register% stuffed_channel.queued_agrees ItemType.E1 1 true 274262075
+      "the extracted queued is the specification queue's length",
+    -- The composition theorems at the extracted code, over any lawful queue record
+    register% stuffed_channel.send_deliver_extracted ItemType.E2 2 true 1467499622
+      "extracted send then deliver returns exactly the payload across the transparent framing",
+    register% stuffed_channel.deliver_spec_extracted ItemType.E2 2 true 1835972321
+      "extracted deliver returns the oldest pending frame and keeps SChanInv",
+    register% stuffed_channel.send_inv_extracted ItemType.E2 2 true 598349482
+      "extracted send keeps SChanInv with the payload pending",
+    register% stuffed_channel.send_bounded_extracted ItemType.E1 1 true 893343725
+      "after an extracted send, queued plus in-flight is within capacity",
+    register% stuffed_channel.send_refuses_too_long_extracted ItemType.E1 1 true 362613509
+      "the extracted send refuses a payload longer than u32::MAX with the channel unchanged",
+    register% stuffed_channel.send_discharges_not_full_extracted ItemType.E1 1 true 1226408053
+      "a successful extracted send leaves the record's is_full false",
+    -- Substitution StuffedChannel[RB/VQ] on the extracted code, from the constructors
+    register% stuffed_channel.new_idle_RB ItemType.E1 1 true 3397868298
+      "StuffedChannel::new over the extracted ring buffer starts idle",
+    register% stuffed_channel.with_queue_idle_VQ ItemType.E1 1 true 2283655350
+      "StuffedChannel::with_queue over the extracted VecQueue starts idle",
+    register% stuffed_channel.send_deliver_extracted_RB ItemType.E2 2 true 974921122
+      "send_deliver_extracted at the extracted ring buffer, no trait or simulation hypothesis",
+    register% stuffed_channel.send_deliver_extracted_VQ ItemType.E2 2 true 2439099929
+      "send_deliver_extracted at the extracted VecQueue, no reproof",
+    register% stuffed_channel.deliver_spec_extracted_RB ItemType.E2 2 true 3276226080
+      "deliver_spec_extracted at the extracted ring buffer",
+    register% stuffed_channel.deliver_spec_extracted_VQ ItemType.E2 2 true 589261324
+      "deliver_spec_extracted at the extracted VecQueue, no reproof",
+    register% stuffed_channel.send_deliver_from_new_RB ItemType.E2 2 true 3473441069
+      "from StuffedChannel::new, send then deliver returns exactly the payload and queued is 1",
+    register% stuffed_channel.send_deliver_from_new_VQ ItemType.E2 2 true 4072884471
+      "from StuffedChannel::with_queue at VecQueue, send then deliver returns the payload, queued 1" ]
 
 /-- The bridge package's own bank. -/
 def bank : List Item := toBank items
@@ -370,14 +446,14 @@ def allBank : List Item := toBank allItems
 #print axioms allItems
 #print axioms allBank
 
-/-- Eighty-nine bridge rows. -/
-example : bank.length = 89 := by decide
+/-- One hundred and twelve bridge rows. -/
+example : bank.length = 112 := by decide
 
 -- At this many rows, every `decide` over the combined bank -- not only the witness strings --
 -- needs more than the default recursion depth.
 set_option maxRecDepth 4096 in
-/-- One hundred and fifty-seven rows across both packages. -/
-example : allBank.length = 157 := by decide
+/-- One hundred and eighty rows across both packages. -/
+example : allBank.length = 180 := by decide
 
 set_option maxRecDepth 4096 in
 /-- Every row, in both packages, names a nonvacuity witness. -/
@@ -388,10 +464,10 @@ example : noOpenScored allBank := noOpenScored_all allBank
 
 set_option maxRecDepth 4096 in
 /-- The kernel-scored total over both packages. -/
-example : totalScore allBank = 408 := by decide
+example : totalScore allBank = 470 := by decide
 
 set_option maxRecDepth 4096 in
 /-- The achievable total over both packages, counting the two compiler-trusting core rows. -/
-example : totalMax allBank = 412 := by decide
+example : totalMax allBank = 474 := by decide
 
 end FramedChannel.Bridge
