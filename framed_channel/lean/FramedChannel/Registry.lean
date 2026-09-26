@@ -11,12 +11,14 @@ import FramedChannel.Composition.Channel.Theorems
 import FramedChannel.Composition.Channel.Instances
 import FramedChannel.Composition.StuffedChannel.Theorems
 import FramedChannel.Composition.StuffedChannel.Instances
+import FramedChannel.Composition.Receiver.Theorems
+import FramedChannel.Composition.Receiver.Instances
 
 /-!
 # Registry: the example's rows in the verified component library
 
-The core package's certified theorems -- the seven components', the second queue instance's and the
-channel composite's -- are registered as `CertifiedItem` rows through `Certify.lean`'s `register%`.
+The core package's certified theorems -- the seven components', the second queue instance's, the two
+channel composites' and the receive path's -- are registered as `CertifiedItem` rows through `Certify.lean`'s `register%`.
 The macro resolves each name at elaboration and splices its proof term into the row, and it binds
 the row to the structural hash of the theorem's elaborated statement, so a row cannot name a
 missing theorem and a changed statement fails the build with a drift error
@@ -51,6 +53,20 @@ composition    StuffedChannel.send_deliver <- {Transparent.decode_append, varint
 refines        Stuff -> Transparent        (StuffedChannel.instTransparentHdlc; composition layer)
 substitution   Channel[VQ/BQ]  (deliver_spec_RB, deliver_spec_VQ: one proof, two instances)
 substitution   StuffedChannel[VQ/BQ]  (deliver_spec_RB, deliver_spec_VQ at the second composite)
+refines        Rcv -> ReceiverLaws        (Receiver.instReceiverLaws; the new Spec/Receiver.lean
+                                        interface, shown non-vacuous at HDLC stuffing)
+composition    Receiver.feed_frame <- {Transparent.body_flag_free, Transparent.ends_with_flag,
+                                        StuffedChannel.parseStuffed_encodeStuffed, push_law,
+                                        ChecksumModel.digest}
+distilled_from Receiver.resync_progress <- {feed_append, feed_frame} (two rewrites)
+distilled_from Receiver.order_preserved <- {feed_append, feed_frame} (one induction)
+substitution   Receiver[VQ/BQ]  (feed_spec_RB, feed_spec_VQ at the receive path)
+refuted        soundness of scan-to-flag over UNSTUFFED Channel framing
+                                        (Evidence/Countermodels.lean; the frame accepted at
+                                        [0x12, 0x7E, 0x00] was never sent)
+refuted        soundness in the canonical-encoding form, even over stuffed framing
+                                        (Evidence/Countermodels.lean; [129, 0, 0, 0, 126], which
+                                        is why accepted_sound is qualified)
 equivalence    crc8_step_linear_kernel ≃ crc8_step_linear  (kernel replay of the bv_decide row)
 equivalence    SeqNum.lt_eq_ltRFC_kernel ≃ SeqNum.lt_eq_ltRFC  (kernel replay of the bv_decide row)
 refuted        transitivity of SeqNum.lt  (Evidence/Countermodels.lean; no SerialLaws field)
@@ -201,7 +217,32 @@ def items : List CertifiedItem :=
     register% StuffedChannel.deliver_spec_RB   ItemType.E2 2 true 3039473024
       "deliver_spec at the ring buffer, HDLC framing, bitwise CRC-8, no reproof",
     register% StuffedChannel.deliver_spec_VQ   ItemType.E2 2 true 3830547097
-      "deliver_spec at the list-backed queue, no reproof" ]
+      "deliver_spec at the list-backed queue, no reproof",
+    -- Receiver: the resynchronizing receive path, generic over four interfaces (E1, E2)
+    register% Receiver.poll_accepted           ItemType.E1 1 true 2201520285
+      "poll agrees with the accepted-frame observation",
+    register% Receiver.feed_append             ItemType.E1 1 true 3688526396
+      "chunking invariance: what the receiver does is independent of how the stream is cut up",
+    register% Receiver.quiet_before_flag       ItemType.E1 1 true 667699104
+      "nothing accepted and nothing dropped before a flag arrives",
+    register% Receiver.idle_flags              ItemType.E1 1 true 3683837952
+      "adjacent flags are idle, not drops (RFC 1662 4.1)",
+    register% Receiver.run_exactly_one         ItemType.E2 2 true 1928707195
+      "each non-empty flag-terminated run is exactly one accept or exactly one drop",
+    register% Receiver.feed_frame              ItemType.E2 2 true 1608116524
+      "a well-formed frame's encoding is accepted in order with nothing dropped",
+    register% Receiver.accepted_sound          ItemType.E2 2 true 720331936
+      "SOUNDNESS: every accepted frame is the parse of a run actually present in the wire",
+    register% Receiver.resync_progress         ItemType.E2 2 true 2701371413
+      "a frame after a flag-terminated garbage prefix is accepted, derived from feed_append",
+    register% Receiver.order_preserved         ItemType.E2 2 true 1172856572
+      "a clean stream is accepted in order with none lost, derived from feed_append",
+    register% Receiver.instReceiverLaws        ItemType.E2 2 true 1898215784
+      "the canonical model satisfies every law of the new receiver interface",
+    register% Receiver.feed_spec_RB            ItemType.E2 2 true 955762509
+      "feed_frame at the ring buffer, HDLC framing, bitwise CRC-8, no reproof",
+    register% Receiver.feed_spec_VQ            ItemType.E2 2 true 661179361
+      "feed_frame at the list-backed queue, no reproof" ]
 
 /-- The example's bank, in the shape the scoring machinery consumes. -/
 def bank : List Item := toBank items
@@ -211,8 +252,8 @@ def bank : List Item := toBank items
 #print axioms items
 #print axioms bank
 
-/-- Sixty-eight rows. -/
-example : bank.length = 68 := by decide
+/-- Eighty rows. -/
+example : bank.length = 80 := by decide
 
 /-- Every row names a nonvacuity witness. -/
 example : bank.all Item.hasWitness = true := by decide
@@ -221,10 +262,10 @@ example : bank.all Item.hasWitness = true := by decide
 example : noOpenScored bank := noOpenScored_all bank
 
 /-- The kernel-scored total. -/
-example : totalScore bank = 170 := by decide
+example : totalScore bank = 202 := by decide
 
 /-- The achievable total, counting the two compiler-trusting rows. -/
-example : totalMax bank = 174 := by decide
+example : totalMax bank = 206 := by decide
 
 /-! ## Coverage: what is deliberately not registered
 
@@ -252,6 +293,18 @@ Every component has at minimum an error-agreement or bounds row (`E1`) and a ref
   either. Every other theorem the unit proves is registered: the transparency round trip, the
   marker-free wire, the `Transparent` instance, both bounds rows, the length refusal, the
   invariant, `deliver_spec`, `send_deliver` and the two queue instantiations.
+
+* `Receiver`'s nine supporting lemmas -- `toList_push_ok`, `poll_ok_accepted`, `feed_nil`,
+  `feed_cons`, `finishRun_buf`, `feed_flag_free`, `feed_run_eq`, `encRun_flag_free`, `feed_sound`,
+  plus `Instances.lean`'s `stuff_ne_nil`, `body_ne_nil`, `encRun_hdlc`, `feed_terminated_buf`,
+  `model_feed`, `model_quiet`, `model_room`, `ofFrame_id` and `order_preserved_aux`. Each is a step
+  of a registered row -- the queue-law plumbing, the fold equations, the `EncRun` discharge at HDLC,
+  or the accumulating form the order-preservation induction runs through -- and none is an
+  obligation of its own, exactly as `Bridge/Stuff/`'s loop lemmas are. `instReceiverModel` is the L0
+  companion of the registered `instReceiverLaws` and carries no law, so it earns no row either.
+  Everything else the unit proves is registered: the four operation-level facts, the three
+  run-level theorems, the two derived theorems, the laws instance and the two queue
+  instantiations.
 
 Per-component coverage, item by item, is in the `coverage:` block of each manifest under
 `certificate/`. -/
