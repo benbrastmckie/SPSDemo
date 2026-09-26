@@ -225,21 +225,24 @@ instance instSerialLaws_extracted : SerialLaws seq_num.SeqNum where
     exact FramedChannel.SeqNum.lt_total_of_defined (toModel a) (toModel b) (toModel_ne a b hne)
       (by rw [← extDefined_eq]; exact hd)
 
-#print axioms HALF_val
-#print axioms half_eq
-#print axioms toModel_inj
-#print axioms new_refines
-#print axioms get_refines
-#print axioms succ_refines
-#print axioms add_refines
-#print axioms dist_refines
-#print axioms lt_refines
-#print axioms extSucc_toModel
-#print axioms extAdd_toModel
-#print axioms extDist_bv
-#print axioms extLt_eq
-#print axioms extDefined_eq
-#print axioms ext_iter
-#print axioms instSerialLaws_extracted
+#print axioms FramedChannel.Bridge.seq_num.HALF_val
+#print axioms FramedChannel.Bridge.seq_num.half_eq
+#print axioms FramedChannel.Bridge.seq_num.toModel_ofModel
+#print axioms FramedChannel.Bridge.seq_num.ofModel_toModel
+#print axioms FramedChannel.Bridge.seq_num.toModel_inj
+#print axioms FramedChannel.Bridge.seq_num.toModel_ne
+#print axioms FramedChannel.Bridge.seq_num.new_refines
+#print axioms FramedChannel.Bridge.seq_num.get_refines
+#print axioms FramedChannel.Bridge.seq_num.succ_refines
+#print axioms FramedChannel.Bridge.seq_num.add_refines
+#print axioms FramedChannel.Bridge.seq_num.dist_refines
+#print axioms FramedChannel.Bridge.seq_num.lt_refines
+#print axioms FramedChannel.Bridge.seq_num.extSucc_toModel
+#print axioms FramedChannel.Bridge.seq_num.extAdd_toModel
+#print axioms FramedChannel.Bridge.seq_num.extDist_bv
+#print axioms FramedChannel.Bridge.seq_num.extLt_eq
+#print axioms FramedChannel.Bridge.seq_num.extDefined_eq
+#print axioms FramedChannel.Bridge.seq_num.ext_iter
+#print axioms FramedChannel.Bridge.seq_num.instSerialLaws_extracted
 
 end FramedChannel.Bridge.seq_num
