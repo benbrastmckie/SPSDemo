@@ -15,6 +15,9 @@ import FramedChannelAeneas.Bridge.Varint.Defs
 import FramedChannelAeneas.Bridge.Varint.Encode
 import FramedChannelAeneas.Bridge.Varint.Decode
 import FramedChannelAeneas.Bridge.Varint.Instance
+import FramedChannelAeneas.Bridge.Zigzag.Defs
+import FramedChannelAeneas.Bridge.Zigzag.Mapping
+import FramedChannelAeneas.Bridge.Zigzag.Instance
 import FramedChannelAeneas.Bridge.Stuff.Defs
 import FramedChannelAeneas.Bridge.Stuff.Stuff
 import FramedChannelAeneas.Bridge.Stuff.Unstuff
@@ -69,6 +72,15 @@ trait, whose component-independent bridge (`QueueSim` and the transport theorems
 * The extracted varint codec (`Bridge/Varint/`): `encode_refines`, `decode_ok_refines`,
   `decode_complete`, `roundtrip_extracted` and `instCodecLaws_extracted` as `E2`, and the error
   agreement `decode_err_iff` as `E1`.
+* The extracted zigzag signed varint (`Bridge/Zigzag/`), the codec interface's second value type
+  at the bridge: `encode_refines`, `decode_ok_refines`, `decode_complete`, `roundtrip_extracted`
+  and `instCodecLaws_extracted` as `E2`; the two scalar specifications `zigzag_spec` and
+  `unzigzag_spec`, and the error agreement `decode_err_iff`, as `E1`. Every `E2` row here is the
+  varint codec's own theorem plus one scalar step -- `Bridge/Zigzag/Instance.lean` unfolds no
+  LEB128 loop and holds no loop lemma. Left unregistered: `decode_eq`, `bmod_small`, `i32_not_val`
+  and `zz_bv`, which are steps of those proofs rather than obligations of the unit; `zz_bv` is the
+  one genuinely new bit-vector fact, and it is kernel-only (no `bv_decide`, hence no `flagged`
+  row).
 * The extracted HDLC byte-stuffing codec (`Bridge/Stuff/`): `stuff_refines`,
   `encode_frame_refines`, `decode_ok_refines`, `decode_complete`, `roundtrip_extracted` and
   `instCodecLaws_extracted` as `E2`, and the error agreement `decode_err_iff` as `E1`. Its
@@ -209,6 +221,25 @@ def items : List CertifiedItem :=
       "the extracted decode inverts the extracted encode on every u32, no bound hypothesis",
     register% varint.instCodecLaws_extracted ItemType.E2 2 true 3731857118
       "CodecLaws on the extracted LEB128 codec over Std.U32",
+    -- The extracted zigzag signed varint: the codec interface's second value type at the bridge
+    -- (E2, and error agreement as E1). Every row below is varint's own theorem plus one scalar
+    -- step; no LEB128 loop is reasoned about a second time.
+    register% zigzag.zigzag_spec           ItemType.E1 1 true 3033183585
+      "the extracted zigzag's signed shift and xor is the model's arithmetic zigzag map",
+    register% zigzag.unzigzag_spec         ItemType.E1 1 true 2473696237
+      "the extracted unzigzag is the model's unzigzag on every u32",
+    register% zigzag.encode_refines        ItemType.E2 2 true 916046262
+      "the extracted encode_i32 appends exactly the model's zigzag LEB128 encoding",
+    register% zigzag.decode_ok_refines     ItemType.E2 2 true 3176892933
+      "an extracted decode_i32 success is a model signed decode success",
+    register% zigzag.decode_complete       ItemType.E2 2 true 1754870494
+      "a model signed decode success inside the i32 range is an extracted decode_i32 success",
+    register% zigzag.decode_err_iff        ItemType.E1 1 true 1411820494
+      "extracted decode_i32 errs exactly when the underlying varint decode does, unchanged",
+    register% zigzag.roundtrip_extracted   ItemType.E2 2 true 1675764305
+      "the extracted decode inverts the extracted encode on every i32, no bound hypothesis",
+    register% zigzag.instCodecLaws_extracted ItemType.E2 2 true 3742193170
+      "CodecLaws on the extracted zigzag signed codec over Std.I32",
     -- The extracted HDLC byte-stuffing codec (E2, and error agreement as E1)
     register% stuff.stuff_refines          ItemType.E2 2 true 2814710957
       "the extracted stuff appends exactly the model's stuffed payload",
@@ -302,13 +333,15 @@ def allBank : List Item := toBank allItems
 #print axioms allItems
 #print axioms allBank
 
-/-- Seventy-three bridge rows. -/
-example : bank.length = 73 := by decide
+/-- Eighty-one bridge rows. -/
+example : bank.length = 81 := by decide
 
-/-- One hundred and nineteen rows across both packages. -/
-example : allBank.length = 119 := by decide
+-- At this many rows, every `decide` over the combined bank -- not only the witness strings --
+-- needs more than the default recursion depth.
+set_option maxRecDepth 4096 in
+/-- One hundred and twenty-seven rows across both packages. -/
+example : allBank.length = 127 := by decide
 
--- At this many rows, deciding the witness strings needs more than the default recursion depth.
 set_option maxRecDepth 4096 in
 /-- Every row, in both packages, names a nonvacuity witness. -/
 example : allBank.all Item.hasWitness = true := by decide
@@ -316,10 +349,12 @@ example : allBank.all Item.hasWitness = true := by decide
 /-- No open item is ever scored (free for any bank). -/
 example : noOpenScored allBank := noOpenScored_all allBank
 
+set_option maxRecDepth 4096 in
 /-- The kernel-scored total over both packages. -/
-example : totalScore allBank = 311 := by decide
+example : totalScore allBank = 332 := by decide
 
+set_option maxRecDepth 4096 in
 /-- The achievable total over both packages, counting the one compiler-trusting core row. -/
-example : totalMax allBank = 313 := by decide
+example : totalMax allBank = 334 := by decide
 
 end FramedChannel.Bridge
