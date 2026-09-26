@@ -1,7 +1,7 @@
 # aeneas/
 
 The Lake package that connects the hand-written models in `../lean` to a real Charon/Aeneas
-extraction of the whole `../rust` crate. All seven units are extracted, axiom-free, and bridged to
+extraction of the whole `../rust` crate. All eight units are extracted, axiom-free, and bridged to
 their models: the ring buffer, the list-backed `VecQueue`, the varint codec, the zigzag
 signed-varint codec, the CRC-8 and the HDLC byte-stuffing codec, with the specification's laws
 instantiated directly on their extracted carriers, and the channel, whose composition theorems are proved once over any lawful extracted

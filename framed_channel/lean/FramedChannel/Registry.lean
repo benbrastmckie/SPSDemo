@@ -13,7 +13,7 @@ import FramedChannel.Composition.Channel.Instances
 /-!
 # Registry: the example's rows in the verified component library
 
-The core package's certified theorems -- the five components', the second queue instance's and the
+The core package's certified theorems -- the seven components', the second queue instance's and the
 channel composite's -- are registered as `CertifiedItem` rows through `Certify.lean`'s `register%`.
 The macro resolves each name at elaboration and splices its proof term into the row, and it binds
 the row to the structural hash of the theorem's elaborated statement, so a row cannot name a
@@ -193,7 +193,7 @@ example : noOpenScored bank := noOpenScored_all bank
 /-- The kernel-scored total. -/
 example : totalScore bank = 140 := by decide
 
-/-- The achievable total, counting the one compiler-trusting row. -/
+/-- The achievable total, counting the two compiler-trusting rows. -/
 example : totalMax bank = 144 := by decide
 
 /-! ## Coverage: what is deliberately not registered

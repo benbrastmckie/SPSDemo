@@ -21,7 +21,7 @@ bash framed_channel/check.sh --committed-extraction # audits both packages again
 
 `--core-only` is offline, no network, no charon/aeneas bridge, and writes nothing under
 `framed_channel/certificate/`. `--committed-extraction` goes one step further: inside the same
-light shell, it builds and checks both packages (the core and bridge package, seven certified units
+light shell, it builds and checks both packages (the core and bridge package, eight certified units
 between them) against whatever is already committed at
 `framed_channel/aeneas/FramedChannelAeneas/Extracted/`, without ever regenerating or verifying
 that extraction (no charon/aeneas needed for that either -- only `jq`). Both always end INCOMPLETE

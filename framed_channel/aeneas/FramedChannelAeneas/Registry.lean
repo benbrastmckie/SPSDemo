@@ -391,7 +391,7 @@ set_option maxRecDepth 4096 in
 example : totalScore allBank = 378 := by decide
 
 set_option maxRecDepth 4096 in
-/-- The achievable total over both packages, counting the one compiler-trusting core row. -/
+/-- The achievable total over both packages, counting the two compiler-trusting core rows. -/
 example : totalMax allBank = 382 := by decide
 
 end FramedChannel.Bridge

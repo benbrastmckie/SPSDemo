@@ -1,10 +1,10 @@
 # framed_channel
 
 A worked example of the verification pipeline on one small piece of software: a framed message
-channel in Rust, built from six components -- a `RingBuffer`, a list-backed queue (`VecQueue`),
-a LEB128 `Varint` codec, a zigzag signed-varint codec (`Zigzag`), a `Crc8` checksum and an
-HDLC byte-stuffing codec (`Stuff`) -- plus the composite `Channel`: the certified units of this
-example. Each unit has a Lean model, an interface
+channel in Rust, built from seven components -- a `RingBuffer`, a list-backed queue (`VecQueue`),
+a LEB128 `Varint` codec, a zigzag signed-varint codec (`Zigzag`), a `Crc8` checksum, an
+HDLC byte-stuffing codec (`Stuff`) and an RFC 1982 sequence number (`SeqNum`) -- plus the composite
+`Channel`: the certified units of this example. Each unit has a Lean model, an interface
 it instantiates, theorems, registry rows and a certificate manifest; the composite is proved from
 the component theorems and the interface laws alone. A Charon/Aeneas extraction of the whole crate
 is connected to every model by kernel-checked refinement theorems.
@@ -150,7 +150,9 @@ Every registered core theorem is proved as `:= by rung <method> => <script>`
 **What `manual` means.** A script a person or an outside tool wrote; the gate cannot tell which and
 does not claim to. There is no AI-prover rung and no extension point for one.
 `crc8_step_linear_kernel` is recorded `manual (excluding bv_decide)`: its audit skips the
-`bv_decide` rung it exists to avoid.
+`bv_decide` rung it exists to avoid. `SeqNum.lt_eq_ltRFC_kernel` is recorded the same way for the
+same reason, and `SeqNum.lt_total_of_defined` carries the qualifier too -- any two-variable
+`BitVec 16` fact is inside `bv_decide`'s reach and would otherwise be audited against it.
 
 **Records not audited as rungs.** The shared-proof pair `RingBuffer.push_inv`/`pop_inv` lives in
 the approved definitions layer, so wrapping it would move the approved digests; `ladder_record%`
@@ -274,7 +276,7 @@ are Lean-only.
 | Substitution (`C[B/A]`) | `Channel<Q = RingBuffer<Frame>>`, run at `VecQueue<Frame>` too | `deliver_spec_RB`/`deliver_spec_VQ`: one proof, two queues; on the extracted code, `send_deliver_extracted_RB`/`_VQ` and `send_deliver_from_new_RB`/`_VQ` |
 | Inheritance | every `_vec_queue` test is the same body at a second instance | every channel theorem is proved from the six laws; none opens `RingBuffer` or `VQ` |
 | Distillation | -- | the `inv_preserve` and `refine_commute` tactics, with the measured reuse table in `Model/RingBuffer/Theorems.lean`; and, across units, `Zigzag` over `Varint` -- `Zigzag.zigzag_roundtrip` and `Zigzag.encode_length_le` are recorded on the `retrieval` rung of `certificate/ladder.txt`, retrieved from `CodecLaws` at `Leb128`, and two of the four zigzag bridge theorems are the varint bridge's own plus one scalar step |
-| Decidability | -- | `bv_decide` (bit-vectors bit-blasted to SAT), the 256-case kernel `decide`, the ladder's `decide` rung, and the kernel countermodel searches |
+| Decidability | -- | `bv_decide` (bit-vectors bit-blasted to SAT), the kernel `decide` rung and the kernel countermodel searches. This row no longer rests on `Crc8` alone: `SeqNum` carries a second `bv_decide` row (`lt_eq_ltRFC`, the RFC 1982 §3.2 formula against the distance test over all `2 ^ 32` pairs) with its own kernel replay `lt_eq_ltRFC_kernel` beside it, two `decide` rungs over the full 65536-case 16-bit space (`lt_irrefl`, `lt_succ`), and two kernel countermodel searches -- one of which, `lt_trans_cand`, refutes transitivity of the serial comparison rather than a missing hypothesis |
 
 ## Unit names
 
@@ -290,6 +292,7 @@ named without inventing anything.
 | `Crc8` (`src/crc8.rs`, free functions) | `crc8` | `FramedChannel.Crc8` / `Bitwise`, `Tabled` | `FramedChannelChallenge.Crc8`, `FramedChannelAeneasChallenge.Crc8` | `FramedChannel.Bridge.crc8` | `Bitwise` / `Tabled` | `certificate/crc8.yaml` |
 | `Stuff` (`src/stuff.rs`, free functions) | `stuff` | `FramedChannel.Stuff` / `Hdlc` | `FramedChannelChallenge.Stuff`, `FramedChannelAeneasChallenge.Stuff` | `FramedChannel.Bridge.stuff` | -- (one model) | `certificate/stuff.yaml` |
 | `Zigzag` (`src/zigzag.rs`, free functions) | `zigzag` | `FramedChannel.Zigzag` / `ZigzagI32` | `FramedChannelChallenge.Zigzag`, `FramedChannelAeneasChallenge.Zigzag` | `FramedChannel.Bridge.zigzag` | -- (one model) | `certificate/zigzag.yaml` |
+| `SeqNum` (`src/seq_num.rs`) | `seq_num` | `FramedChannel.SeqNum` / `Serial` | `FramedChannelChallenge.SeqNum`, `FramedChannelAeneasChallenge.SeqNum` | `FramedChannel.Bridge.seq_num` | -- (one model) | `certificate/seq_num.yaml` |
 | `Channel<Q>` (`src/channel.rs`) | `channel` | `FramedChannel.Channel` / `Chan` | `FramedChannelChallenge.Channel`, `FramedChannelAeneasChallenge.Channel` | `FramedChannel.Bridge.channel` | `_RB` / `_VQ` | `certificate/channel.yaml` |
 
 The conventions the table encodes:

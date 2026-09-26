@@ -43,7 +43,7 @@ directory, and no flat unit module inside one.
   at `Instance.lean`, which is where the interface instance on the extracted or composed carrier
   is built.
 - **`Spec/` is not a unit layer.** It is one flat module per interface (`Spec/Queue.lean`,
-  `Spec/Codec.lean`, `Spec/Checksum.lean`): an interface is not a unit, and nothing is proved
+  `Spec/Codec.lean`, `Spec/Checksum.lean`, `Spec/Serial.lean`): an interface is not a unit, and nothing is proved
   about it.
 - **A flat module directly under a unit layer means package-level infrastructure**, never a unit.
   `../aeneas`'s `Bridge/Std.lean` is the only such module in the example, and its own header says
@@ -81,7 +81,7 @@ The library is layered, and `../check.sh`'s layer import rule fails the run on a
 └──────────────────────────────┬────────────────────────────────────┘
                                │ instantiate
 ┌──────────────────────────────┴────────────────────────────────────┐
-│ Spec/         Result, Queue, Codec, Checksum                      │
+│ Spec/         Result, Queue, Codec, Checksum, Serial              │
 │               L0 interfaces and L1 laws classes; no model         │
 └───────────────────────────────────────────────────────────────────┘
 ```
@@ -108,6 +108,13 @@ implementation.
   `round_trip`, `length_le`).
 - **`Checksum.lean`**: `ChecksumModel` (L0: `step`, `seed`, `digest`) and `ChecksumLaws` (L1:
   `digest_nil`, `digest_snoc`).
+- **`Serial.lean`**: `SerialModel` (L0: `zero`, `succ`, `lt`, `defined`, `space`, with `iter`
+  *derived* from `succ` rather than a field) and `SerialLaws` (L1: `lt_irrefl`, `lt_succ`,
+  `succ_cycles`, `lt_total_of_defined`). Four laws and **no transitivity**: RFC 1982's serial
+  comparison is not transitive, and `Evidence/Countermodels.lean` refutes it in the kernel, so the
+  missing field is evidenced rather than merely absent. `defined` is the field that makes the
+  totality law honest -- §3.2 leaves the comparison undefined on a pair exactly half the space
+  apart. The module docstring records all three decisions.
 
 ### Model layer: `FramedChannel/Model/`
 
@@ -118,7 +125,7 @@ component is one directory, splitting into `<X>/Theorems.lean` (the theorems bel
 `<X>/Defs.lean` (definitions only:
 the representation, its invariant where it has one, the operations and the interface instance) --
 `RingBuffer/Defs.lean`, `VecQueue/Defs.lean`, `Varint/Defs.lean`, `Zigzag/Defs.lean`,
-`Crc8/Defs.lean` -- so the
+`Crc8/Defs.lean`, `SeqNum/Defs.lean` -- so the
 Challenge module for that component can import definitions without importing a registered
 theorem. `RingBuffer/Defs.lean` is the one exception documented in its own header: `pushBQ` and
 `popBQ` build the invariant subtype with `push_inv` and `pop_inv`, so those two theorems (and the
@@ -153,9 +160,22 @@ theorem. `RingBuffer/Defs.lean` is the one exception documented in its own heade
 - **`Crc8/Theorems.lean`**: CRC-8 with polynomial `0x07`, bytes as `BitVec 8`. `crc8_table_eq_bits`
   (the 256-entry table agrees with the bitwise loop, via a per-entry lemma closed by kernel
   `decide`), `stepTable_index_in_range`, and two `ChecksumLaws` instances, `Bitwise` and `Tabled`.
-  `crc8_step_linear` is the example's one compiler-trusting declaration: proved by `bv_decide`,
-  tagged `[PROVED: compiler-trusting]`, registered with `verified := false`, and the single entry on
-  the flagged allow-list. `crc8_step_linear_kernel` proves the same statement in the kernel.
+  `crc8_step_linear` is the example's **first** compiler-trusting declaration: proved by `bv_decide`,
+  tagged `[PROVED: compiler-trusting]`, registered with `verified := false`, and one of the two
+  entries on the flagged allow-list (`SeqNum.lt_eq_ltRFC` is the other).
+  `crc8_step_linear_kernel` proves the same statement in the kernel.
+- **`SeqNum/Theorems.lean`**: RFC 1982 serial-number arithmetic over a 16-bit space, sequence numbers
+  as `BitVec 16`, giving `SerialModel`/`SerialLaws` their canonical instance on the carrier `Serial`.
+  The unit deliberately spreads itself across four ladder rungs rather than landing at `manual`:
+  `decide` for `lt_irrefl` and `lt_succ` (one 16-bit variable is 65536 cases, decided in the kernel
+  at `Ladder.auditHeartbeats`), `grind` for `dist_add`, `lt_add` and `lt_translation_invariant`,
+  `retrieval` for `iter_space`, and `bv_decide` for `lt_eq_ltRFC` -- the example's **second**
+  compiler-trusting declaration, which proves that the one-test distance form the Rust uses agrees
+  with §3.2's literal two-case formula on all `2 ^ 32` pairs. `lt_eq_ltRFC_kernel` replays it in the
+  kernel beside it, registered `manual (excluding bv_decide)` for the reason
+  `crc8_step_linear_kernel` records. There is **no transitivity theorem and never will be**: `lt` is
+  not transitive, and `Evidence/Countermodels.lean` refutes it at a genuine three-cycle. Rust
+  counterpart: `SeqNum`.
 
 ### Composition layer: `FramedChannel/Composition/`
 
@@ -186,7 +206,8 @@ binders register too, which lets the bridge package use the same macro.
 A **registry row** binds a theorem to its elaborated statement hash, so a silently weakened
 theorem fails the build. The **bank** is the list of rows. Each row carries a weight set by its item
 type; **score** sums the weights of rows marked verified, and the **achievable** total sums every
-row's weight. The only gap is the compiler-trusting `crc8_step_linear` row, which scores `0`. Both
+row's weight. The only gaps are the two compiler-trusting rows, `crc8_step_linear` and
+`SeqNum.lt_eq_ltRFC`, which each score `0`. Both
 totals, and the row count, are closed by kernel `decide` in `Registry.lean`. The bridge registry
 (`../aeneas/FramedChannelAeneas/Registry.lean`) extends the bank over both packages. Every name a
 manifest lists under `proofs:` is registered in one of the two, and `../check.sh` fails when the
@@ -199,7 +220,7 @@ registry; one of the two is required).
 
 ### The Challenge library: `FramedChannelChallenge/`
 
-`FramedChannelChallenge/{RingBuffer,VecQueue,Varint,Zigzag,Crc8,Stuff,Channel}.lean` (root
+`FramedChannelChallenge/{RingBuffer,VecQueue,Varint,Zigzag,Crc8,Stuff,SeqNum,Channel}.lean` (root
 `FramedChannelChallenge.lean`) restate every core registered theorem except the shared-proof pair
 with `:= sorry`, importing only `Defs` modules: the approved specification, in the form Comparator
 consumes, one approval unit per component. It is maintained by hand, never regenerated from the
@@ -233,6 +254,8 @@ record:
 | `zigzag_lt_unbounded` | `Zigzag.zigzag_lt`'s `i32`-range hypothesis | `2 ^ 31`, the first value outside `i32` |
 | `zigzag_monotone` | nothing -- it refutes a plausible *misuse*: that `zigzag` preserves order, hence that encoded byte order is signed order | `(-2, -1)` |
 | `zigzag_encode_length_le_unbounded` | `Zigzag.encode_length_le`'s domain hypothesis entirely | `2 ^ 34`, the **varint's** five-byte fuel boundary, not the `i32` one -- that refutation is `zigzag_lt_unbounded` |
+| `lt_trans_cand` | nothing -- it is the one row here that refutes a law a reader would simply **assume** holds: that RFC 1982's serial `lt` is transitive. `SerialLaws` therefore has no such field | `(0, 20000, 40000)`, a genuine three-cycle (`cycle_witness` records `lt 40000 0` too). The enumeration steps by 5000 rather than by powers of two, whose first failure would instead be the undefined region below |
+| `lt_total_cand` | `SeqNum.lt_total_of_defined`'s `defined` hypothesis | `32768`, exactly half the space from `0`, where §3.2 leaves the comparison undefined and neither number is serially before the other |
 
 ### Tooling: `FramedChannel/SpecCheck.lean`
 

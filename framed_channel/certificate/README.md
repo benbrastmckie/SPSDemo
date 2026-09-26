@@ -8,7 +8,7 @@ or a valid certificate does and does not certify.
 
 | Kind | Files | Written by |
 |---|---|---|
-| Manifests | `ring_buffer.yaml`, `vec_queue.yaml`, `varint.yaml`, `zigzag.yaml`, `crc8.yaml`, `stuff.yaml`, `channel.yaml` | hand |
+| Manifests | `ring_buffer.yaml`, `vec_queue.yaml`, `varint.yaml`, `zigzag.yaml`, `crc8.yaml`, `stuff.yaml`, `seq_num.yaml`, `channel.yaml` | hand |
 | Shared manifest content | `shared.yaml` | hand |
 | Policy | `policy.txt` | hand |
 | Approvals | `approvals.yaml` | a person or a declared agent, through `../approve.sh` only |
@@ -21,9 +21,9 @@ Generated files are never edited by hand.
 
 ## Manifests
 
-There is one manifest per certified unit: the six components (ring buffer, list-backed queue,
-varint codec, zigzag signed-varint codec, CRC-8, byte stuffing) plus the composite channel. All
-seven share one shape: `component`, `source`,
+There is one manifest per certified unit: the seven components (ring buffer, list-backed queue,
+varint codec, zigzag signed-varint codec, CRC-8, byte stuffing, RFC 1982 sequence number) plus the
+composite channel. All eight share one shape: `component`, `source`,
 `formal_model`, `bridge`, `implements` (or `composition` for the composite), `assumptions`,
 `guarantees`, `proofs`, `supporting`, `dependencies`, `toolchain`, `coverage`, `trust`,
 `not_claimed`, plus a `specification:` block naming the Challenge modules its `proofs:` are
@@ -37,7 +37,7 @@ generate it; `../check.sh`'s manifest glob ignores the template itself (see
 
 `toolchain:` and `trust.G0_checker.independent_recheck:` each carry `shared: certificate/shared.yaml`.
 `shared.yaml` holds the content every manifest shares: the common toolchain pointers (Lean, the
-extractor, the Rust toolchain, the certificate identity, and, for the five units that share it,
+extractor, the Rust toolchain, the certificate identity, and, for the units that share it,
 `mathlib`/`build`) and the independent-recheck entries (comparator, lean4lean, leanchecker,
 nanoda). Each manifest keeps only its own delta: `toolchain.extraction:` (the unit-specific tail
 of what was extracted), and, where a unit's `mathlib`/`build` differs from the shared value (today
@@ -52,7 +52,8 @@ hex revision or version triple in a manifest or in `shared.yaml`.
 Some units extend the shared shape with unit-specific keys: `purpose` and `recorded_difference`
 (`vec_queue.yaml`), `findings` (`varint.yaml`, `channel.yaml`), `composite_trust_note`
 (`crc8.yaml`, `channel.yaml`), and `trust.G0_checker.independent_recheck.flagged_rows`
-(`crc8.yaml`, its two `crc8_step_linear` notes that do not belong in the shared file).
+(`crc8.yaml`, its two `crc8_step_linear` notes that do not belong in the shared file; `seq_num.yaml`
+carries the analogous notes for `lt_eq_ltRFC`).
 
 `proofs:` lists the **certified obligations**: every name is a registered, statement-hash-bound
 row of `../lean/FramedChannel/Registry.lean` (core package) or
@@ -64,9 +65,10 @@ those obligations are built from: proved and audited, but not registered.
 | `ring_buffer.yaml` | the fully worked component: model proofs, the extracted-code bridge by name, and the `trust` block with all six ground classes |
 | `vec_queue.yaml` | its `purpose` block (without a second queue, substitution has nothing to substitute) and its `bridge` block |
 | `varint.yaml` | its `coverage` block (how a stateless component handles state-shaped obligations) and the extracted round trip whose `u32` bound is carried by the machine integer |
-| `crc8.yaml` | the one compiler-trusting declaration and the one-entry allow-list that permits it |
+| `crc8.yaml` | the first compiler-trusting declaration and the `flagged` allow-list that permits it (there are two rows now; `seq_num.yaml` carries the second) |
 | `stuff.yaml` | its `countermodels` block, where the search enumeration is sized to stay decidable in the kernel |
 | `zigzag.yaml` | the unit defined OVER another: both model laws and two of the four bridge theorems are retrieved from the varint's, which its `ladder` and `findings` blocks record, and its `countermodels` block distinguishes the two boundaries its three refutations pin |
+| `seq_num.yaml` | the unit whose headline is a REFUTATION rather than a theorem: its `coverage.transitivity_of_lt` row blocks the omission of a transitivity law with the kernel countermodel that refutes it, and its `coverage.ladder` row is the one spread deliberately across four rungs |
 | `channel.yaml` | its `composition` block (`send = push ∘ checksum ∘ encode`) and its `findings` block (the length-126 case) |
 
 `crc8.yaml` and `channel.yaml` each carry a `composite_trust_note` naming their weakest link.
@@ -111,10 +113,10 @@ carry no tag.
 | Tag | Meaning |
 |---|---|
 | `[PROVED: kernel]` | sorry-free; `#print axioms` within `{propext, Classical.choice, Quot.sound}` |
-| `[PROVED: compiler-trusting]` | sorry-free but uses `bv_decide` (a native helper axiom is present). Exactly one declaration: `FramedChannel.Crc8.crc8_step_linear` |
+| `[PROVED: compiler-trusting]` | sorry-free but uses `bv_decide` (a native helper axiom is present). Exactly two declarations: `FramedChannel.Crc8.crc8_step_linear` and `FramedChannel.SeqNum.lt_eq_ltRFC`. Each is declared `flagged` in `policy.txt`, registered `verified := false`, scores `0`, and has a kernel replay of the same statement registered beside it (`crc8_step_linear_kernel`, `lt_eq_ltRFC_kernel`) |
 | `[HAND-WRITTEN: model; bridged]` | a hand-written Lean model (`../lean/FramedChannel/Model/`, `Composition/`) in the shape Aeneas produces, connected to the extraction by the bridge proofs in `../aeneas/` |
 | `[HAND-WRITTEN]` | hand-written bridge infrastructure in `../aeneas/FramedChannelAeneas/Bridge/` that is not a model: library step specifications (`Std.lean`), the trait-record assumptions (`Queue/Traits.lean`), the generic queue simulation and its instance (`Queue/Defs.lean`, `Queue/Transport.lean`, `Queue/Instance.lean`), and the per-component abstraction and definitions modules (`<X>/Defs.lean`, `Channel/Abstraction.lean`) |
-| `[EXTRACTED: aeneas + bridge]` | connected to a Charon/Aeneas extraction of the Rust by kernel-checked refinement theorems (`../aeneas/FramedChannelAeneas/Bridge/`). The extractor (rustc MIR, Charon and Aeneas, Aeneas's library models and the crate-local models in `Extracted/FunsExternal.lean`) is trusted, not verified; the tag carries no revision so a pin bump never touches it -- the pinned revisions live in `../../nix/aeneas-pin.json` and `../flake.lock`, with the charon version that produced the committed extraction recorded in `candidates.txt`; no manifest restates them. All seven units carry it |
+| `[EXTRACTED: aeneas + bridge]` | connected to a Charon/Aeneas extraction of the Rust by kernel-checked refinement theorems (`../aeneas/FramedChannelAeneas/Bridge/`). The extractor (rustc MIR, Charon and Aeneas, Aeneas's library models and the crate-local models in `Extracted/FunsExternal.lean`) is trusted, not verified; the tag carries no revision so a pin bump never touches it -- the pinned revisions live in `../../nix/aeneas-pin.json` and `../flake.lock`, with the charon version that produced the committed extraction recorded in `candidates.txt`; no manifest restates them. All eight units carry it |
 | `[AUTHORED: nix-tested]` | Rust written here (manifests only); toolchain from PATH, or pinned by the root `rust-toolchain.toml` (read by `flake.nix`) when used; `../check.sh` runs `cargo fmt --check`, `cargo clippy -D warnings` and the differential tests, locally and in CI (`.github/workflows/ci.yml`, `verify.yml`) |
 | `[NOT CLAIMED]` | explicitly outside the certificate (the compiled binary, concurrency, corruption on the wire) |
 
@@ -466,8 +468,9 @@ independent.
 same `permitted_axioms` and an `.expect` file naming its `bv_decide` helper axioms. The helper
 cannot be permitted instead: Comparator exports permitted axioms from the Challenge too, and the
 statement-only Challenge has no such constant, so lean4export would fail before anything is
-compared. The rejection still proves the statement matches; the row's kernel twin,
-`crc8_step_linear_kernel` (same statement), is checked in the main core config.
+compared. The rejection still proves the statement matches; each row's kernel twin,
+`crc8_step_linear_kernel` and `lt_eq_ltRFC_kernel` (each the same statement as its flagged row), is
+checked in the main core config.
 
 ## The asymmetries that are deliberate
 
@@ -570,7 +573,7 @@ it (bridge package only).
 **Axiom audit.** An axiom outside `{propext, Classical.choice, Quot.sound}`, or a compiler-trusting
 axiom (`Lean.ofReduceBool`, `Lean.trustCompiler`, or the native helper
 `<decl>._native.bv_decide.ax_<n>_<m>`) for a declaration not on the flagged allow-list, which holds
-exactly `FramedChannel.Crc8.crc8_step_linear`. The bank aggregates (`FramedChannel.items` and
+exactly `FramedChannel.Crc8.crc8_step_linear` and `FramedChannel.SeqNum.lt_eq_ltRFC`. The bank aggregates (`FramedChannel.items` and
 `FramedChannel.bank` in the core package, `FramedChannel.Bridge.allItems` and `allBank` over both)
 splice every row's proof into one definition, so they inherit the flagged row's axioms by
 construction; they are excused for those axioms alone, and still catch a registered theorem that
