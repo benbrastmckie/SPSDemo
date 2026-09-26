@@ -8,6 +8,7 @@
 use framed_channel::channel::{encode_frame, parse_frame, DeliverFail, SendFail};
 use framed_channel::crc8::{crc8, crc8_table};
 use framed_channel::queue::BoundedQueue;
+use framed_channel::receiver::Receiver;
 use framed_channel::ring_buffer::{Full, RingBuffer};
 use framed_channel::seq_num::SeqNum;
 use framed_channel::stuff::{encode_frame as stuff_encode_frame, stuff, unstuff, UnstuffError};
@@ -1108,6 +1109,153 @@ fn stuffed_channel_agrees_with_extracted_vectors_vec_queue() {
         new_vec_queue_stuffed_channel,
         &mut inputs,
     );
+    inputs.report();
+}
+
+/// One stuffed frame's wire bytes, flag terminator included.
+fn stuffed_wire(payload: &[u8]) -> Vec<u8> {
+    let mut w: Vec<u8> = Vec::new();
+    let len = u32::try_from(payload.len()).expect("a test payload shorter than u32::MAX");
+    encode_stuffed(payload, len, &mut w);
+    w
+}
+
+/// Drain every accepted frame from a receiver, front first.
+fn drain<Q: BoundedQueue<Frame>>(r: &mut Receiver<Q>) -> Vec<Frame> {
+    let mut out: Vec<Frame> = Vec::new();
+    let mut n = r.queued();
+    while n > 0 {
+        match r.poll() {
+            Some(f) => out.push(f),
+            None => return out,
+        }
+        n -= 1;
+    }
+    out
+}
+
+/// The resynchronizing receive path on the six scenarios that distinguish it from
+/// `StuffedChannel::deliver`: a clean stream, a corrupted run, an unterminated tail, adjacent
+/// flags, a marker-bearing payload, and a full-queue refusal. Generic over the queue, so both
+/// implementations are exercised through the same script.
+fn receiver_resyncs_at<Q: BoundedQueue<Frame>>(inputs: &mut Inputs) {
+    // A clean two-frame stream: both accepted, in order, nothing dropped.
+    let mut r: Receiver<Q> = Receiver::with_queue(4);
+    let mut wire = stuffed_wire(&[1, 2, 3]);
+    wire.extend_from_slice(&stuffed_wire(&[9]));
+    r.feed(&wire);
+    assert_eq!(drain(&mut r), vec![vec![1, 2, 3], vec![9]], "a clean stream is accepted in order");
+    assert_eq!(r.dropped(), 0, "a clean stream drops nothing");
+    inputs.saw();
+
+    // Chunking invariance: the same wire fed one byte at a time gives the same result.
+    let mut r: Receiver<Q> = Receiver::with_queue(4);
+    let mut i = 0usize;
+    while i < wire.len() {
+        let b = *wire.get(i).expect("i < wire.len()");
+        r.feed(&[b]);
+        i += 1;
+    }
+    assert_eq!(drain(&mut r), vec![vec![1, 2, 3], vec![9]], "feed is chunking-invariant");
+    assert_eq!(r.dropped(), 0);
+    inputs.saw();
+
+    // A corrupted check byte: the run is dropped, and the receiver resynchronizes on the frame
+    // that follows rather than wedging.
+    let mut bad = stuffed_wire(&[7, 7]);
+    let last = bad.len() - 2;
+    let b = *bad.get(last).expect("a stuffed frame has at least two bytes");
+    let slot = bad.get_mut(last).expect("a stuffed frame has at least two bytes");
+    *slot = b ^ 0x01;
+    let mut r: Receiver<Q> = Receiver::with_queue(4);
+    r.feed(&bad);
+    r.feed(&stuffed_wire(&[5]));
+    assert_eq!(drain(&mut r), vec![vec![5]], "the frame after a corrupted run is still accepted");
+    assert_eq!(r.dropped(), 1, "a corrupted run is one drop");
+    inputs.saw();
+
+    // An unterminated tail buffers and is neither accepted nor dropped: there is no flag yet, so
+    // there is no run to judge. This is the qualifier `Receiver.quiet_before_flag` states.
+    let mut r: Receiver<Q> = Receiver::with_queue(4);
+    let clean = stuffed_wire(&[4, 4]);
+    let head = clean.get(..clean.len() - 1).expect("a stuffed frame is never empty");
+    r.feed(head);
+    assert_eq!(r.queued(), 0, "an unterminated run is not accepted");
+    assert_eq!(r.dropped(), 0, "an unterminated run is not dropped either");
+    // The terminator completes it.
+    r.feed(&[MARKER]);
+    assert_eq!(drain(&mut r), vec![vec![4, 4]], "the flag completes the buffered run");
+    assert_eq!(r.dropped(), 0);
+    inputs.saw();
+
+    // Adjacent flags are idle (RFC 1662 §4.1): an empty run is ignored, never counted as a drop.
+    let mut r: Receiver<Q> = Receiver::with_queue(4);
+    r.feed(&[MARKER, MARKER, MARKER]);
+    assert_eq!(r.queued(), 0, "flags alone accept nothing");
+    assert_eq!(r.dropped(), 0, "flags alone drop nothing");
+    r.feed(&stuffed_wire(&[8]));
+    assert_eq!(drain(&mut r), vec![vec![8]], "idle flags leave the receiver usable");
+    assert_eq!(r.dropped(), 0);
+    inputs.saw();
+
+    // A marker-bearing payload: the stuffing is what makes this work at all. The wire carries the
+    // flag only as its terminator, so the receiver sees exactly one run.
+    let mut r: Receiver<Q> = Receiver::with_queue(4);
+    let w = stuffed_wire(&[MARKER, MARKER]);
+    let body = w.get(..w.len() - 1).expect("a stuffed frame is never empty");
+    assert!(!body.contains(&MARKER), "a stuffed body carries no flag: {body:?}");
+    r.feed(&w);
+    assert_eq!(drain(&mut r), vec![vec![MARKER, MARKER]], "a marker-bearing payload round-trips");
+    assert_eq!(r.dropped(), 0);
+    inputs.saw();
+
+    // A garbage prefix must be FLAG-TERMINATED to resynchronize. Unterminated, it fuses with the
+    // next frame's body and that frame is lost -- the qualifier `Receiver.resync_progress` carries.
+    let mut r: Receiver<Q> = Receiver::with_queue(4);
+    r.feed(&[3, 4, 5]);
+    r.feed(&stuffed_wire(&[9]));
+    assert_eq!(r.queued(), 0, "an unterminated garbage prefix fuses with the next frame");
+    assert_eq!(r.dropped(), 1, "and that fused run is the one drop");
+    let mut r: Receiver<Q> = Receiver::with_queue(4);
+    r.feed(&[3, 4, 5, MARKER]);
+    r.feed(&stuffed_wire(&[9]));
+    assert_eq!(drain(&mut r), vec![vec![9]], "a flag-terminated prefix resynchronizes");
+    assert_eq!(r.dropped(), 1, "the garbage run itself is the one drop");
+    inputs.saw();
+
+    // A full queue refuses the push, and that refusal counts as a drop -- the same conflation
+    // `DeliverFail` already makes, and what keeps `run_exactly_one` unconditional.
+    let mut r: Receiver<Q> = Receiver::with_queue(1);
+    r.feed(&stuffed_wire(&[1]));
+    r.feed(&stuffed_wire(&[2]));
+    assert_eq!(r.queued(), 1, "the second frame does not fit");
+    assert_eq!(r.dropped(), 1, "a full-queue refusal is a drop");
+    assert_eq!(drain(&mut r), vec![vec![1]], "the frame that fit is the one kept");
+    inputs.saw();
+}
+
+/// The receive path at the default `RingBuffer<Frame>` queue.
+#[test]
+fn receiver_resyncs() {
+    let mut inputs = Inputs::new("receiver_resyncs");
+    receiver_resyncs_at::<RingBuffer<Frame>>(&mut inputs);
+    // `new` and `with_queue` agree at the default queue: the two-constructor pattern.
+    let mut a: Receiver<RingBuffer<Frame>> = Receiver::new(2);
+    let mut b: Receiver<RingBuffer<Frame>> = Receiver::with_queue(2);
+    let w = stuffed_wire(&[6, 6]);
+    a.feed(&w);
+    b.feed(&w);
+    assert_eq!(drain(&mut a), drain(&mut b), "new and with_queue agree at the default queue");
+    inputs.saw();
+    inputs.report();
+}
+
+/// The same script at `VecQueue<Frame>`: the substitution the Lean `feed_spec_RB`/`_VQ` pair
+/// states, executed.
+#[test]
+fn receiver_resyncs_vec_queue() {
+    let mut inputs = Inputs::new("receiver_resyncs_vec_queue");
+    receiver_resyncs_at::<VecQueue<Frame>>(&mut inputs);
     inputs.report();
 }
 

@@ -14,6 +14,7 @@
 pub mod channel;
 pub mod crc8;
 pub mod queue;
+pub mod receiver;
 pub mod ring_buffer;
 pub mod seq_num;
 pub mod stuff;
@@ -23,6 +24,7 @@ pub mod zigzag;
 
 pub use channel::{Channel, DeliverFail, Frame, SendFail, MARKER};
 pub use queue::{BoundedQueue, VecQueue};
+pub use receiver::Receiver;
 pub use ring_buffer::{Full, RingBuffer};
 pub use seq_num::SeqNum;
 pub use stuffed_channel::StuffedChannel;
