@@ -1,6 +1,7 @@
 -- SPDX-License-Identifier: Apache-2.0
 import FramedChannel.Ladder
 import FramedChannel.Model.Varint.Theorems
+import FramedChannel.Model.Zigzag.Theorems
 import FramedChannel.Model.Stuff.Theorems
 import FramedChannel.Composition.Channel.Theorems
 
@@ -179,6 +180,79 @@ theorem stuff_maxLen_unbounded_false : ¬ stuff_maxLen_unbounded :=
 
 refuted% stuff_maxLen_unbounded stuff_maxLen_unbounded_false search_stuff_maxLen_unbounded
 
+/-! ## 7. `Zigzag.zigzag_lt` without its `i32`-range hypothesis
+
+This is the `i32`-boundary refutation of the zigzag unit, and the one that pins the domain: it
+refutes exactly the lemma that admits the composed model into `Varint`'s claimed `u32` domain.
+Note what it is *not*: `zigzag_roundtrip` stripped of its hypothesis is not refuted at the `i32`
+boundary at all -- `2 ^ 31` and `-(2 ^ 31) - 1` both still round-trip, because zigzag halves the
+varint's five-byte reach, so the first failure is at the varint's own fuel boundary (block 9 below).
+The range hypothesis is therefore evidenced here, at `zigzag_lt`, or nowhere. -/
+
+/-- The rejected candidate: the zigzag image of every integer lies in the varint's `u32` domain. -/
+def zigzag_lt_unbounded : Prop := ∀ n : Int, Zigzag.zigzag n < 2 ^ 32
+
+/-- Over the powers of two below `2 ^ 34`, the first whose zigzag image leaves the `u32` domain is
+exactly `2 ^ 31` -- the first value outside `i32`. `[PROVED: kernel]` -/
+theorem search_zigzag_lt_unbounded :
+    (((List.range 34).map (fun k => (2:Int) ^ k)).find?
+        (fun n => !decide (Zigzag.zigzag n < 2 ^ 32))) = some ((2:Int) ^ 31) := by
+  decide +kernel
+
+/-- `[PROVED: kernel]` -/
+theorem zigzag_lt_unbounded_false : ¬ zigzag_lt_unbounded :=
+  fun h => absurd (h ((2:Int) ^ 31)) (by decide +kernel)
+
+refuted% zigzag_lt_unbounded zigzag_lt_unbounded_false search_zigzag_lt_unbounded
+
+/-! ## 8. `Zigzag.zigzag` is not order-preserving
+
+Not a hypothesis-stripping refutation but a design record: the zigzag encoding interleaves the two
+signs, so the encoded order is *not* the signed order. This is why the unit must not be used for
+ordered comparison on the wire -- two encodings cannot be compared lexicographically to compare the
+values they carry. -/
+
+/-- The rejected candidate: zigzag is monotone, so encoded values compare as the signed ones do. -/
+def zigzag_monotone : Prop := ∀ m n : Int, m ≤ n → Zigzag.zigzag m ≤ Zigzag.zigzag n
+
+/-- Over the twenty-five pairs from `[-2, -1, 0, 1, 2]²`, the first ordered pair whose zigzag images
+are out of order is `(-2, -1)`: `zigzag (-2) = 3` but `zigzag (-1) = 1`. `[PROVED: kernel]` -/
+theorem search_zigzag_monotone :
+    (([-2, -1, 0, 1, 2].flatMap fun i : Int => [-2, -1, 0, 1, 2].map fun j : Int => (i, j)).find?
+      fun p => decide (p.1 ≤ p.2 ∧ ¬ Zigzag.zigzag p.1 ≤ Zigzag.zigzag p.2)) = some (-2, -1) := by
+  decide +kernel
+
+/-- `[PROVED: kernel]` -/
+theorem zigzag_monotone_false : ¬ zigzag_monotone :=
+  fun h => absurd (h (-2) (-1) (by decide)) (by decide +kernel)
+
+refuted% zigzag_monotone zigzag_monotone_false search_zigzag_monotone
+
+/-! ## 9. `Zigzag.encode_length_le` without its `i32`-range hypothesis
+
+**Read the witness carefully.** The first failure is `2 ^ 34`, which is the *varint's* own five-byte
+fuel boundary (`128 ^ 5 = 2 ^ 35`, halved by zigzag's doubling), not the `i32` boundary `2 ^ 31`.
+So this block records that the length bound needs *some* domain restriction, inherited from the
+codec underneath; it does **not** test the `i32` range that `Dom` names. The refutation that pins
+the `i32` boundary is `zigzag_lt_unbounded` in block 7, at exactly `2 ^ 31`. -/
+
+/-- The rejected candidate: every integer's zigzag encoding fits in five bytes. -/
+def zigzag_encode_length_le_unbounded : Prop := ∀ n : Int, (Zigzag.encode n).length ≤ 5
+
+/-- Over the powers of two below `2 ^ 40`, the first whose encoding is longer than five bytes is
+`2 ^ 34` -- the varint's fuel boundary, not the `i32` boundary. `[PROVED: kernel]` -/
+theorem search_zigzag_encode_length_le_unbounded :
+    (((List.range 40).map (fun k => (2:Int) ^ k)).find?
+        (fun n => !decide ((Zigzag.encode n).length ≤ 5))) = some ((2:Int) ^ 34) := by
+  decide +kernel
+
+/-- `[PROVED: kernel]` -/
+theorem zigzag_encode_length_le_unbounded_false : ¬ zigzag_encode_length_le_unbounded :=
+  fun h => absurd (h ((2:Int) ^ 34)) (by decide +kernel)
+
+refuted% zigzag_encode_length_le_unbounded zigzag_encode_length_le_unbounded_false
+  search_zigzag_encode_length_le_unbounded
+
 #print axioms search_encode_length_le_unbounded
 #print axioms encode_length_le_unbounded_false
 #print axioms search_varint_roundtrip_unbounded
@@ -191,5 +265,11 @@ refuted% stuff_maxLen_unbounded stuff_maxLen_unbounded_false search_stuff_maxLen
 #print axioms encode_no_expansion_false
 #print axioms search_stuff_maxLen_unbounded
 #print axioms stuff_maxLen_unbounded_false
+#print axioms search_zigzag_lt_unbounded
+#print axioms zigzag_lt_unbounded_false
+#print axioms search_zigzag_monotone
+#print axioms zigzag_monotone_false
+#print axioms search_zigzag_encode_length_le_unbounded
+#print axioms zigzag_encode_length_le_unbounded_false
 
 end FramedChannel
