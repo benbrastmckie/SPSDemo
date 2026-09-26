@@ -117,7 +117,8 @@ bridge proves the extraction against, and the canonical non-vacuous instances of
 component is one directory, splitting into `<X>/Theorems.lean` (the theorems below) and
 `<X>/Defs.lean` (definitions only:
 the representation, its invariant where it has one, the operations and the interface instance) --
-`RingBuffer/Defs.lean`, `VecQueue/Defs.lean`, `Varint/Defs.lean`, `Crc8/Defs.lean` -- so the
+`RingBuffer/Defs.lean`, `VecQueue/Defs.lean`, `Varint/Defs.lean`, `Zigzag/Defs.lean`,
+`Crc8/Defs.lean` -- so the
 Challenge module for that component can import definitions without importing a registered
 theorem. `RingBuffer/Defs.lean` is the one exception documented in its own header: `pushBQ` and
 `popBQ` build the invariant subtype with `push_inv` and `pop_inv`, so those two theorems (and the
@@ -140,6 +141,15 @@ theorem. `RingBuffer/Defs.lean` is the one exception documented in its own heade
   closed by `grind` over the definitions, and the `CodecLaws` instance on the tag `Leb128`. The
   bound is a hypothesis because the unconditional form is false: `encodeF 5` emits a sixth byte once
   `n ≥ 128 ^ 5`.
+- **`Zigzag/Theorems.lean`**: the protobuf zigzag signed varint over `i32`, giving `CodecModel` its
+  second value type (`α = Int`, beside `Leb128` at the naturals and `Hdlc` at byte lists). It is
+  **defined over `Varint.Leb128` through the L0 projections**, so `zigzag_roundtrip` and
+  `encode_length_le` are recorded on the `retrieval` rung -- retrieved from `CodecLaws` at `Leb128`
+  rather than re-derived -- and the only new arithmetic is `zigzag_lt`, that the zigzag image of the
+  `i32` range lies in the varint's `u32` domain. The bijection (`unzigzag_zigzag`,
+  `zigzag_unzigzag`) is registered hypothesis-free, which is stronger than mutual inversion on the
+  `i32` range. Rust counterpart: `zigzag`, `unzigzag`, `encode_i32`, `decode_i32`, which delegate to
+  `crate::varint` rather than reimplementing LEB128.
 - **`Crc8/Theorems.lean`**: CRC-8 with polynomial `0x07`, bytes as `BitVec 8`. `crc8_table_eq_bits`
   (the 256-entry table agrees with the bitwise loop, via a per-entry lemma closed by kernel
   `decide`), `stepTable_index_in_range`, and two `ChecksumLaws` instances, `Bitwise` and `Tabled`.
@@ -189,7 +199,7 @@ registry; one of the two is required).
 
 ### The Challenge library: `FramedChannelChallenge/`
 
-`FramedChannelChallenge/{RingBuffer,VecQueue,Varint,Crc8,Channel}.lean` (root
+`FramedChannelChallenge/{RingBuffer,VecQueue,Varint,Zigzag,Crc8,Stuff,Channel}.lean` (root
 `FramedChannelChallenge.lean`) restate every core registered theorem except the shared-proof pair
 with `:= sorry`, importing only `Defs` modules: the approved specification, in the form Comparator
 consumes, one approval unit per component. It is maintained by hand, never regenerated from the
@@ -220,6 +230,9 @@ record:
 | `varint_roundtrip_unbounded` | `varint_roundtrip`'s `n < 2 ^ 32` | `2 ^ 35`, whose sixth byte is left over |
 | `parseFrameResync_roundtrip` | the receiver design: a parser treating a second `0x7E` as a new boundary | payload length `126`, whose one length byte is `0x7E` |
 | `idx_ne_le` | `idx_ne`'s strict `i < len`, weakened to `i ≤ len` | `(i, len) = (0, 0)` |
+| `zigzag_lt_unbounded` | `Zigzag.zigzag_lt`'s `i32`-range hypothesis | `2 ^ 31`, the first value outside `i32` |
+| `zigzag_monotone` | nothing -- it refutes a plausible *misuse*: that `zigzag` preserves order, hence that encoded byte order is signed order | `(-2, -1)` |
+| `zigzag_encode_length_le_unbounded` | `Zigzag.encode_length_le`'s domain hypothesis entirely | `2 ^ 34`, the **varint's** five-byte fuel boundary, not the `i32` one -- that refutation is `zigzag_lt_unbounded` |
 
 ### Tooling: `FramedChannel/SpecCheck.lean`
 

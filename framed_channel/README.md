@@ -1,9 +1,10 @@
 # framed_channel
 
 A worked example of the verification pipeline on one small piece of software: a framed message
-channel in Rust, built from five components -- a `RingBuffer`, a list-backed queue (`VecQueue`),
-a LEB128 `Varint` codec, a `Crc8` checksum and an HDLC byte-stuffing codec (`Stuff`) -- plus the
-composite `Channel`: the certified units of this example. Each unit has a Lean model, an interface
+channel in Rust, built from six components -- a `RingBuffer`, a list-backed queue (`VecQueue`),
+a LEB128 `Varint` codec, a zigzag signed-varint codec (`Zigzag`), a `Crc8` checksum and an
+HDLC byte-stuffing codec (`Stuff`) -- plus the composite `Channel`: the certified units of this
+example. Each unit has a Lean model, an interface
 it instantiates, theorems, registry rows and a certificate manifest; the composite is proved from
 the component theorems and the interface laws alone. A Charon/Aeneas extraction of the whole crate
 is connected to every model by kernel-checked refinement theorems.
@@ -272,7 +273,7 @@ are Lean-only.
 | Round trip (`D ∘ E = id`) | `varint_roundtrip_on_fixed_inputs` | `varint_roundtrip`; on the extracted code, `roundtrip_extracted` (no bound hypothesis) |
 | Substitution (`C[B/A]`) | `Channel<Q = RingBuffer<Frame>>`, run at `VecQueue<Frame>` too | `deliver_spec_RB`/`deliver_spec_VQ`: one proof, two queues; on the extracted code, `send_deliver_extracted_RB`/`_VQ` and `send_deliver_from_new_RB`/`_VQ` |
 | Inheritance | every `_vec_queue` test is the same body at a second instance | every channel theorem is proved from the six laws; none opens `RingBuffer` or `VQ` |
-| Distillation | -- | the `inv_preserve` and `refine_commute` tactics, with the measured reuse table in `Model/RingBuffer/Theorems.lean` |
+| Distillation | -- | the `inv_preserve` and `refine_commute` tactics, with the measured reuse table in `Model/RingBuffer/Theorems.lean`; and, across units, `Zigzag` over `Varint` -- `Zigzag.zigzag_roundtrip` and `Zigzag.encode_length_le` are recorded on the `retrieval` rung of `certificate/ladder.txt`, retrieved from `CodecLaws` at `Leb128`, and two of the four zigzag bridge theorems are the varint bridge's own plus one scalar step |
 | Decidability | -- | `bv_decide` (bit-vectors bit-blasted to SAT), the 256-case kernel `decide`, the ladder's `decide` rung, and the kernel countermodel searches |
 
 ## Unit names
@@ -288,6 +289,7 @@ named without inventing anything.
 | `Varint` (`src/varint.rs`, free functions) | `varint` | `FramedChannel.Varint` / `Leb128` | `FramedChannelChallenge.Varint`, `FramedChannelAeneasChallenge.Varint` | `FramedChannel.Bridge.varint` | -- (one model) | `certificate/varint.yaml` |
 | `Crc8` (`src/crc8.rs`, free functions) | `crc8` | `FramedChannel.Crc8` / `Bitwise`, `Tabled` | `FramedChannelChallenge.Crc8`, `FramedChannelAeneasChallenge.Crc8` | `FramedChannel.Bridge.crc8` | `Bitwise` / `Tabled` | `certificate/crc8.yaml` |
 | `Stuff` (`src/stuff.rs`, free functions) | `stuff` | `FramedChannel.Stuff` / `Hdlc` | `FramedChannelChallenge.Stuff`, `FramedChannelAeneasChallenge.Stuff` | `FramedChannel.Bridge.stuff` | -- (one model) | `certificate/stuff.yaml` |
+| `Zigzag` (`src/zigzag.rs`, free functions) | `zigzag` | `FramedChannel.Zigzag` / `ZigzagI32` | `FramedChannelChallenge.Zigzag`, `FramedChannelAeneasChallenge.Zigzag` | `FramedChannel.Bridge.zigzag` | -- (one model) | `certificate/zigzag.yaml` |
 | `Channel<Q>` (`src/channel.rs`) | `channel` | `FramedChannel.Channel` / `Chan` | `FramedChannelChallenge.Channel`, `FramedChannelAeneasChallenge.Channel` | `FramedChannel.Bridge.channel` | `_RB` / `_VQ` | `certificate/channel.yaml` |
 
 The conventions the table encodes:

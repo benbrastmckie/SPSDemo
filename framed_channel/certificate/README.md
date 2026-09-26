@@ -8,7 +8,7 @@ or a valid certificate does and does not certify.
 
 | Kind | Files | Written by |
 |---|---|---|
-| Manifests | `ring_buffer.yaml`, `vec_queue.yaml`, `varint.yaml`, `crc8.yaml`, `channel.yaml` | hand |
+| Manifests | `ring_buffer.yaml`, `vec_queue.yaml`, `varint.yaml`, `zigzag.yaml`, `crc8.yaml`, `stuff.yaml`, `channel.yaml` | hand |
 | Shared manifest content | `shared.yaml` | hand |
 | Policy | `policy.txt` | hand |
 | Approvals | `approvals.yaml` | a person or a declared agent, through `../approve.sh` only |
@@ -21,8 +21,9 @@ Generated files are never edited by hand.
 
 ## Manifests
 
-There is one manifest per certified unit: the five components (ring buffer, list-backed queue,
-varint codec, CRC-8, byte stuffing) plus the composite channel. All six share one shape: `component`, `source`,
+There is one manifest per certified unit: the six components (ring buffer, list-backed queue,
+varint codec, zigzag signed-varint codec, CRC-8, byte stuffing) plus the composite channel. All
+seven share one shape: `component`, `source`,
 `formal_model`, `bridge`, `implements` (or `composition` for the composite), `assumptions`,
 `guarantees`, `proofs`, `supporting`, `dependencies`, `toolchain`, `coverage`, `trust`,
 `not_claimed`, plus a `specification:` block naming the Challenge modules its `proofs:` are
@@ -64,6 +65,8 @@ those obligations are built from: proved and audited, but not registered.
 | `vec_queue.yaml` | its `purpose` block (without a second queue, substitution has nothing to substitute) and its `bridge` block |
 | `varint.yaml` | its `coverage` block (how a stateless component handles state-shaped obligations) and the extracted round trip whose `u32` bound is carried by the machine integer |
 | `crc8.yaml` | the one compiler-trusting declaration and the one-entry allow-list that permits it |
+| `stuff.yaml` | its `countermodels` block, where the search enumeration is sized to stay decidable in the kernel |
+| `zigzag.yaml` | the unit defined OVER another: both model laws and two of the four bridge theorems are retrieved from the varint's, which its `ladder` and `findings` blocks record, and its `countermodels` block distinguishes the two boundaries its three refutations pin |
 | `channel.yaml` | its `composition` block (`send = push ∘ checksum ∘ encode`) and its `findings` block (the length-126 case) |
 
 `crc8.yaml` and `channel.yaml` each carry a `composite_trust_note` naming their weakest link.
@@ -111,7 +114,7 @@ carry no tag.
 | `[PROVED: compiler-trusting]` | sorry-free but uses `bv_decide` (a native helper axiom is present). Exactly one declaration: `FramedChannel.Crc8.crc8_step_linear` |
 | `[HAND-WRITTEN: model; bridged]` | a hand-written Lean model (`../lean/FramedChannel/Model/`, `Composition/`) in the shape Aeneas produces, connected to the extraction by the bridge proofs in `../aeneas/` |
 | `[HAND-WRITTEN]` | hand-written bridge infrastructure in `../aeneas/FramedChannelAeneas/Bridge/` that is not a model: library step specifications (`Std.lean`), the trait-record assumptions (`Queue/Traits.lean`), the generic queue simulation and its instance (`Queue/Defs.lean`, `Queue/Transport.lean`, `Queue/Instance.lean`), and the per-component abstraction and definitions modules (`<X>/Defs.lean`, `Channel/Abstraction.lean`) |
-| `[EXTRACTED: aeneas + bridge]` | connected to a Charon/Aeneas extraction of the Rust by kernel-checked refinement theorems (`../aeneas/FramedChannelAeneas/Bridge/`). The extractor (rustc MIR, Charon and Aeneas, Aeneas's library models and the crate-local models in `Extracted/FunsExternal.lean`) is trusted, not verified; the tag carries no revision so a pin bump never touches it -- the pinned revisions live in `../../nix/aeneas-pin.json` and `../flake.lock`, with the charon version that produced the committed extraction recorded in `candidates.txt`; no manifest restates them. All six units carry it |
+| `[EXTRACTED: aeneas + bridge]` | connected to a Charon/Aeneas extraction of the Rust by kernel-checked refinement theorems (`../aeneas/FramedChannelAeneas/Bridge/`). The extractor (rustc MIR, Charon and Aeneas, Aeneas's library models and the crate-local models in `Extracted/FunsExternal.lean`) is trusted, not verified; the tag carries no revision so a pin bump never touches it -- the pinned revisions live in `../../nix/aeneas-pin.json` and `../flake.lock`, with the charon version that produced the committed extraction recorded in `candidates.txt`; no manifest restates them. All seven units carry it |
 | `[AUTHORED: nix-tested]` | Rust written here (manifests only); toolchain from PATH, or pinned by the root `rust-toolchain.toml` (read by `flake.nix`) when used; `../check.sh` runs `cargo fmt --check`, `cargo clippy -D warnings` and the differential tests, locally and in CI (`.github/workflows/ci.yml`, `verify.yml`) |
 | `[NOT CLAIMED]` | explicitly outside the certificate (the compiled binary, concurrency, corruption on the wire) |
 

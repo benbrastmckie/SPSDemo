@@ -85,7 +85,7 @@ done
 # library prefixes `FramedChannel`/`FramedChannelAeneas` are package names, not components. Both
 # are masked out first; anything left is a typed component name, the defect this rule set no
 # longer carries. Comment lines are dropped -- prose may say "channel" in passing; a rule may not.
-component_names='RingBuffer|ListQueue|VecQueue|Varint|Crc8|Channel|QueueDefs|QueueInstance'
+component_names='RingBuffer|ListQueue|VecQueue|Varint|Zigzag|Crc8|Stuff|Channel|QueueDefs|QueueInstance'
 masked="$(printf '%s\n' "$block" \
   | grep -v '^[[:space:]]*#' \
   | sed -e 's/\${QUEUE_MODELS_RE}/DERIVED/g' \
