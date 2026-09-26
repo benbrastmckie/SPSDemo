@@ -96,7 +96,7 @@ inductive stuff.UnstuffError where
 | BadEscape : stuff.UnstuffError
 
 /-- [framed_channel::stuffed_channel::StuffedChannel]
-    Source: 'src/stuffed_channel.rs', lines 103:0-107:1
+    Source: 'src/stuffed_channel.rs', lines 107:0-111:1
     Visibility: public -/
 structure stuffed_channel.StuffedChannel (Q : Type) where
   out : Q

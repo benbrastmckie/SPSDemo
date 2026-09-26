@@ -76,11 +76,15 @@ pub fn parse_stuffed(wire: &[u8]) -> Option<(Frame, usize)> {
     // `decode_u32` reported `consumed` bytes read from `frame`, so this slice always exists; it
     // goes through `get` because no expression in this crate indexes directly.
     let rest = frame.get(consumed..)?;
-    // Lean matches `bytes.drop n` against `[c]`: exactly the payload and one check byte remain.
-    if rest.len() != n + 1 {
+    let payload: Frame = rest.get(..n)?.to_vec();
+    // Lean matches `bytes.drop n` against `[c]`: exactly one check byte may remain. Written as a
+    // `get` and a length test rather than as `rest.len() != n + 1`, because `n` comes from a `u32`
+    // and `n + 1` overflows a 32-bit `usize` at `u32::MAX` -- a panic reachable from a crafted
+    // wire. No arithmetic appears on this path at all.
+    let tail = rest.get(n..)?;
+    if tail.len() != 1 {
         return None;
     }
-    let payload: Frame = rest.get(..n)?.to_vec();
     let check = *rest.get(n)?;
     if check != crc8(&payload) {
         return None;
