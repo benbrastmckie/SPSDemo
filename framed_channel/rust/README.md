@@ -42,7 +42,11 @@ level. `clippy::pedantic` is not gated. The exceptions in the tree:
   line per group of related values;
 - one `#[allow(clippy::cast_possible_truncation)]`, on the `k as u8` in the CRC incremental-prefix
   scenario of `tests/differential.rs`, guarded by the assertion just above it that the record holds
-  256 digests.
+  256 digests;
+- one `#[allow(clippy::should_implement_trait)]`, on `SeqNum::add` in `src/seq_num.rs`, whose
+  operand types are asymmetric (`SeqNum + u16`, never `SeqNum + SeqNum`) and which is deliberately
+  an inherent method rather than a `std::ops::Add` impl, so that the extraction carries no trait
+  dispatch for it.
 
 ## The doc-comment citations in `src/` are deliberately frozen
 
@@ -76,8 +80,8 @@ the extraction module is `queue`, not `vec_queue`, because `src/queue.rs` holds 
 ## Modules
 
 ### src/lib.rs
-`#![forbid(unsafe_code)]`, the six modules, and the re-exports `Channel`, `DeliverFail`, `Frame`,
-`SendFail`, `MARKER`, `BoundedQueue`, `VecQueue`, `Full`, `RingBuffer`.
+`#![forbid(unsafe_code)]`, the eight modules, and the re-exports `Channel`, `DeliverFail`, `Frame`,
+`SendFail`, `MARKER`, `BoundedQueue`, `VecQueue`, `Full`, `RingBuffer`, `SeqNum`.
 
 ### src/ring_buffer.rs
 `RingBuffer<T: Default + Clone>` over a `Vec<T>` with fields `buf`, `head`, `tail`, `len`:
@@ -107,6 +111,17 @@ CRC-8, polynomial `0x07`, initial value `0`, no reflection, no final xor: `crc8`
 and `crc8_table` (the 256-entry `const` table). Check value `crc8(b"123456789") == 0xF4`. The table
 lookup goes through `get` with a `0` fallback that Lean's `stepTable_index_in_range` proves
 unreachable.
+
+### src/seq_num.rs
+`SeqNum`, a 16-bit sequence number with RFC 1982 serial-number arithmetic: `new`, `get`, `succ`,
+`add` (a bounded increment), `dist` (the forward modular distance) and `lt` (§3.2's serial
+comparison, written as the one-test distance form). All arithmetic wraps and is written with the
+explicit `wrapping_add`/`wrapping_sub` methods, because the extraction models plain `+`/`-` as a
+panic on overflow. `lt` is **not transitive** -- `lt(0, 20000)`, `lt(20000, 40000)` and
+`lt(40000, 0)` hold while `lt(0, 40000)` does not -- and is undefined on pairs exactly half the
+space apart; both facts are kernel-refuted in
+`../lean/FramedChannel/Evidence/Countermodels.lean`, and the RFC-faithfulness of the one-test form
+is the Lean theorem `FramedChannel.SeqNum.lt_eq_ltRFC` rather than a comment.
 
 ### src/channel.rs
 The composite and the wire format: `MARKER`, `Frame`, `DeliverFail`, `SendFail`,
