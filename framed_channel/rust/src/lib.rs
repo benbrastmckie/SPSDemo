@@ -17,6 +17,7 @@ pub mod queue;
 pub mod ring_buffer;
 pub mod stuff;
 pub mod varint;
+pub mod zigzag;
 
 pub use channel::{Channel, DeliverFail, Frame, SendFail, MARKER};
 pub use queue::{BoundedQueue, VecQueue};
