@@ -9,6 +9,8 @@ import FramedChannel.Model.SeqNum.Theorems
 import FramedChannel.Model.VecQueue.Theorems
 import FramedChannel.Composition.Channel.Theorems
 import FramedChannel.Composition.Channel.Instances
+import FramedChannel.Composition.StuffedChannel.Theorems
+import FramedChannel.Composition.StuffedChannel.Instances
 
 /-!
 # Registry: the example's rows in the verified component library
@@ -43,7 +45,12 @@ lemma_node     idx_ne <- push_contents
 composition    Channel.send_deliver <- {parseFrame_encodeFrame, varint_roundtrip,
                                         crc8_table_eq_bits, push_law, not_full_of_lt,
                                         push_capacity}
+composition    StuffedChannel.send_deliver <- {Transparent.decode_append, varint_roundtrip,
+                                        ChecksumModel.digest, push_law, not_full_of_lt,
+                                        push_capacity}
+refines        Stuff -> Transparent        (StuffedChannel.instTransparentHdlc; composition layer)
 substitution   Channel[VQ/BQ]  (deliver_spec_RB, deliver_spec_VQ: one proof, two instances)
+substitution   StuffedChannel[VQ/BQ]  (deliver_spec_RB, deliver_spec_VQ at the second composite)
 equivalence    crc8_step_linear_kernel ≃ crc8_step_linear  (kernel replay of the bv_decide row)
 equivalence    SeqNum.lt_eq_ltRFC_kernel ≃ SeqNum.lt_eq_ltRFC  (kernel replay of the bv_decide row)
 refuted        transitivity of SeqNum.lt  (Evidence/Countermodels.lean; no SerialLaws field)
@@ -171,6 +178,29 @@ def items : List CertifiedItem :=
     register% Channel.deliver_spec_RB          ItemType.E2 2 true 3048722796
       "deliver_spec at the ring buffer, no reproof",
     register% Channel.deliver_spec_VQ          ItemType.E2 2 true 3997164531
+      "deliver_spec at the list-backed queue, no reproof",
+    -- StuffedChannel: the transparent composite, generic over three interfaces (E1, E2)
+    register% StuffedChannel.parseStuffed_encodeStuffed ItemType.E2 2 true 3041772710
+      "one frame recovered off a stuffed wire, marker-bearing payloads included",
+    register% StuffedChannel.wire_flag_free_of_send ItemType.E2 2 true 4224761467
+      "no byte written but the frame terminator is the flag: the theorem Channel cannot have",
+    register% StuffedChannel.instTransparentHdlc ItemType.E2 2 true 1718778575
+      "HDLC stuffing satisfies the composition-layer transparency bundle",
+    register% StuffedChannel.send_discharges_not_full ItemType.E1 1 true 3372159519
+      "send's capacity check discharges push's not-full assumption",
+    register% StuffedChannel.send_bounded      ItemType.E1 1 true 10753178
+      "after a successful send, queued plus in-flight is still within capacity",
+    register% StuffedChannel.send_refuses_too_long ItemType.E1 1 true 3680170140
+      "send refuses every payload of 2^32 bytes or more",
+    register% StuffedChannel.send_inv          ItemType.E2 2 true 2903275266
+      "send preserves the invariant, adding the frame to the pending list",
+    register% StuffedChannel.deliver_spec      ItemType.E2 2 true 2072346319
+      "deliver pushes exactly the oldest pending frame off the stuffed wire",
+    register% StuffedChannel.send_deliver      ItemType.E2 2 true 4186265589
+      "send then deliver pushes exactly p across the transparent framing",
+    register% StuffedChannel.deliver_spec_RB   ItemType.E2 2 true 3039473024
+      "deliver_spec at the ring buffer, HDLC framing, bitwise CRC-8, no reproof",
+    register% StuffedChannel.deliver_spec_VQ   ItemType.E2 2 true 3830547097
       "deliver_spec at the list-backed queue, no reproof" ]
 
 /-- The example's bank, in the shape the scoring machinery consumes. -/
@@ -181,8 +211,8 @@ def bank : List Item := toBank items
 #print axioms items
 #print axioms bank
 
-/-- Fifty-seven rows. -/
-example : bank.length = 57 := by decide
+/-- Sixty-eight rows. -/
+example : bank.length = 68 := by decide
 
 /-- Every row names a nonvacuity witness. -/
 example : bank.all Item.hasWitness = true := by decide
@@ -191,10 +221,10 @@ example : bank.all Item.hasWitness = true := by decide
 example : noOpenScored bank := noOpenScored_all bank
 
 /-- The kernel-scored total. -/
-example : totalScore bank = 140 := by decide
+example : totalScore bank = 170 := by decide
 
 /-- The achievable total, counting the two compiler-trusting rows. -/
-example : totalMax bank = 144 := by decide
+example : totalMax bank = 174 := by decide
 
 /-! ## Coverage: what is deliberately not registered
 
@@ -216,6 +246,12 @@ Every component has at minimum an error-agreement or bounds row (`E1`) and a ref
   obligation of the codec, so it earns no bank row. Everything else the unit proves is registered:
   the bound, both directions of the bijection, error agreement, the two retrieved laws and the
   `CodecLaws` instance.
+
+* `StuffedChannel.send_out` -- that `send` does not touch the output queue. It is a step of
+  `send_deliver`, not an obligation of its own, and `Channel` does not register its analogue
+  either. Every other theorem the unit proves is registered: the transparency round trip, the
+  marker-free wire, the `Transparent` instance, both bounds rows, the length refusal, the
+  invariant, `deliver_spec`, `send_deliver` and the two queue instantiations.
 
 Per-component coverage, item by item, is in the `coverage:` block of each manifest under
 `certificate/`. -/
