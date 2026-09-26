@@ -7,6 +7,7 @@ import FramedChannelChallenge.Stuff
 import FramedChannelChallenge.Zigzag
 import FramedChannelChallenge.SeqNum
 import FramedChannelChallenge.Channel
+import FramedChannelChallenge.StuffedChannel
 
 /-!
 # FramedChannelChallenge: the core package's approved specification
