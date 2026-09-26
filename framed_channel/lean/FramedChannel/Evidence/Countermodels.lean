@@ -251,8 +251,10 @@ theorem search_zigzag_encode_length_le_unbounded :
 theorem zigzag_encode_length_le_unbounded_false : ¬ zigzag_encode_length_le_unbounded :=
   fun h => absurd (h ((2:Int) ^ 34)) (by decide +kernel)
 
-refuted% zigzag_encode_length_le_unbounded zigzag_encode_length_le_unbounded_false
-  search_zigzag_encode_length_le_unbounded
+-- One line, deliberately: check.sh's proof-ladder stage reads a refuted% record with
+-- `awk '{ print $2, $3, $4 }'` over the single matching line, so a wrapped record loses its search
+-- theorem and the stage fails naming an empty declaration.
+refuted% zigzag_encode_length_le_unbounded zigzag_encode_length_le_unbounded_false search_zigzag_encode_length_le_unbounded
 
 
 /-! ## 10. RFC 1982 serial `lt` is not transitive
