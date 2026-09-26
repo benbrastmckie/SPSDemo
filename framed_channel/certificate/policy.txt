@@ -29,6 +29,7 @@ trusted Classical.choice
 trusted Quot.sound
 
 flagged FramedChannel.Crc8.crc8_step_linear
+flagged FramedChannel.SeqNum.lt_eq_ltRFC
 
 shared-proof FramedChannel.RingBuffer.push_inv pushBQ builds the invariant subtype BQ from it (Model/RingBuffer/Defs.lean)
 shared-proof FramedChannel.RingBuffer.pop_inv popBQ builds the invariant subtype BQ from it (Model/RingBuffer/Defs.lean)

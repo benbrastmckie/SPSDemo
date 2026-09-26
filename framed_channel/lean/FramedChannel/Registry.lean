@@ -5,6 +5,7 @@ import FramedChannel.Model.Varint.Theorems
 import FramedChannel.Model.Crc8.Theorems
 import FramedChannel.Model.Stuff.Theorems
 import FramedChannel.Model.Zigzag.Theorems
+import FramedChannel.Model.SeqNum.Theorems
 import FramedChannel.Model.VecQueue.Theorems
 import FramedChannel.Composition.Channel.Theorems
 import FramedChannel.Composition.Channel.Instances
@@ -33,6 +34,7 @@ refines        Varint     -> CodecLaws      (Varint.instCodecLaws)
 refines        Stuff      -> CodecLaws      (Stuff.instCodecLaws)
 refines        Crc8       -> ChecksumLaws   (Crc8.instChecksumLawsBitwise, ...Tabled)
 refines        Zigzag     -> CodecLaws      (Zigzag.instCodecLaws; alpha = Int)
+refines        Serial     -> SerialLaws     (SeqNum.instSerialLaws; RFC 1982 serial arithmetic)
 distilled_from inv_preserve   <- {push_inv, pop_inv}
 distilled_from refine_commute <- {push_contents, pop_contents}
 distilled_from Zigzag.zigzag_roundtrip  <- CodecLaws.round_trip at Leb128 (retrieval rung)
@@ -43,6 +45,8 @@ composition    Channel.send_deliver <- {parseFrame_encodeFrame, varint_roundtrip
                                         push_capacity}
 substitution   Channel[VQ/BQ]  (deliver_spec_RB, deliver_spec_VQ: one proof, two instances)
 equivalence    crc8_step_linear_kernel ≃ crc8_step_linear  (kernel replay of the bv_decide row)
+equivalence    SeqNum.lt_eq_ltRFC_kernel ≃ SeqNum.lt_eq_ltRFC  (kernel replay of the bv_decide row)
+refuted        transitivity of SeqNum.lt  (Evidence/Countermodels.lean; no SerialLaws field)
 ```
 
 The edges are documentation, not a Lean object. `crc8_step_linear` carries a native `bv_decide`
@@ -119,6 +123,29 @@ def items : List CertifiedItem :=
       "the framed encoding is at most twice the payload plus the flag",
     register% Stuff.instCodecLaws      ItemType.E2 2 true 677937794
       "HDLC byte stuffing satisfies the codec laws",
+    -- SeqNum: RFC 1982 serial-number arithmetic over a 16-bit space
+    register% SeqNum.lt_irrefl         ItemType.E1 1 true 1076733227
+      "no sequence number is serially before itself",
+    register% SeqNum.lt_succ           ItemType.E1 1 true 15704829
+      "every sequence number is serially before its successor",
+    register% SeqNum.lt_add            ItemType.E1 1 true 1017918142
+      "advancing by a positive increment below half the space lands strictly after",
+    register% SeqNum.lt_eq_ltRFC       ItemType.E1 1 false 563281444
+      "bv_decide: native helper axiom present; compiler-trusting, not counted as verified",
+    register% SeqNum.lt_eq_ltRFC_kernel ItemType.E1 1 true 563281444
+      "kernel replay of lt_eq_ltRFC, no bv_decide",
+    register% SeqNum.iter_ne_of_pos_lt ItemType.E1 1 true 1706830143
+      "fewer than space successor steps never return to the start",
+    register% SeqNum.dist_add          ItemType.E2 2 true 253958028
+      "the forward distance recovers the increment",
+    register% SeqNum.iter_space        ItemType.E2 2 true 2753338996
+      "space successor steps return to where they started",
+    register% SeqNum.lt_total_of_defined ItemType.E2 2 true 1940534923
+      "distinct numbers outside the undefined region are ordered one way or the other",
+    register% SeqNum.lt_translation_invariant ItemType.E2 2 true 186798179
+      "advancing both arguments leaves the comparison unchanged",
+    register% SeqNum.instSerialLaws    ItemType.E2 2 true 4260512589
+      "the canonical 16-bit model satisfies the serial-number laws",
     -- VecQueue: the second bounded-queue instance (E2)
     register% VecQueue.instBoundedQueueLaws ItemType.E2 2 true 2688892127
       "VQ satisfies the six laws",
@@ -154,8 +181,8 @@ def bank : List Item := toBank items
 #print axioms items
 #print axioms bank
 
-/-- Forty-six rows. -/
-example : bank.length = 46 := by decide
+/-- Fifty-seven rows. -/
+example : bank.length = 57 := by decide
 
 /-- Every row names a nonvacuity witness. -/
 example : bank.all Item.hasWitness = true := by decide
@@ -164,10 +191,10 @@ example : bank.all Item.hasWitness = true := by decide
 example : noOpenScored bank := noOpenScored_all bank
 
 /-- The kernel-scored total. -/
-example : totalScore bank = 115 := by decide
+example : totalScore bank = 140 := by decide
 
 /-- The achievable total, counting the one compiler-trusting row. -/
-example : totalMax bank = 117 := by decide
+example : totalMax bank = 144 := by decide
 
 /-! ## Coverage: what is deliberately not registered
 
