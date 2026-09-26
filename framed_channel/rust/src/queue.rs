@@ -8,7 +8,7 @@
 //! every implementor by the generic harness `check_bounded_queue_laws` in `../tests/differential.rs`.
 //!
 //! Two implementors: `RingBuffer<T>` (`ring_buffer.rs`) and `VecQueue<T>` below, which mirrors
-//! `Model/ListQueue.lean`'s `LQ α` field for field.
+//! `Model/VecQueue/{Defs,Theorems}.lean`'s `VQ α` field for field.
 
 use crate::ring_buffer::Full;
 
@@ -47,7 +47,7 @@ pub trait BoundedQueue<T> {
     fn contents(&self) -> Vec<T>;
 }
 
-/// A list-backed bounded queue: field for field the Lean `LQ α` (`items : List α`, `cap : Nat`).
+/// A list-backed bounded queue: field for field the Lean `VQ α` (`items : List α`, `cap : Nat`).
 /// No invariant subtype is needed (contrast `RingBuffer`): `push` refuses once
 /// `self.cap <= self.items.len()`, so every value reachable by `push` respects the bound.
 #[derive(Debug, Clone)]
@@ -57,7 +57,7 @@ pub struct VecQueue<T> {
 }
 
 impl<T: Clone> VecQueue<T> {
-    /// A queue of capacity `cap`. Lean `LQ` carries no `0 < cap` invariant, so unlike
+    /// A queue of capacity `cap`. Lean `VQ` carries no `0 < cap` invariant, so unlike
     /// `RingBuffer::with_capacity` a zero capacity is not rounded up here -- the one recorded
     /// difference between the queues.
     #[must_use]
@@ -90,7 +90,7 @@ impl<T: Clone> VecQueue<T> {
         self.cap <= self.items.len()
     }
 
-    /// Lean `LQ.push`: fail once the bound is reached, else append at the back.
+    /// Lean `VQ.push`: fail once the bound is reached, else append at the back.
     ///
     /// # Errors
     ///
@@ -103,7 +103,7 @@ impl<T: Clone> VecQueue<T> {
         Ok(())
     }
 
-    /// Lean `LQ.pop`: fail when empty, else remove from the front. Guarded on `is_empty` first,
+    /// Lean `VQ.pop`: fail when empty, else remove from the front. Guarded on `is_empty` first,
     /// so `remove(0)` never panics (`Vec::remove` panics only when `index >= len`).
     pub fn pop(&mut self) -> Option<T> {
         if self.is_empty() {

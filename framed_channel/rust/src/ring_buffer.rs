@@ -9,7 +9,7 @@
 //!
 //! This is the safe core. A production ring buffer (`VecDeque`, `heapless::spsc`) keeps an
 //! `unsafe`/`MaybeUninit` interior, which would enter through the verifiable-core / trusted-shell
-//! split as a listed assumption; see `../../certificate/ring_buffer_push.yaml`.
+//! split as a listed assumption; see `../../certificate/ring_buffer.yaml`.
 
 use crate::queue::BoundedQueue;
 

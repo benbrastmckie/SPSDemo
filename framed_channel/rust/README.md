@@ -57,21 +57,20 @@ line in `src/` therefore stales the selection record and turns `../check.sh`'s a
 red, and clearing it again costs a re-review of all 71 in-subset extraction candidates for a
 change that alters no code.
 
-So `src/*.rs` is edited only when the *code* changes. Three doc-comment citations consequently
-name pre-move Lean paths and pre-rename Lean identifiers, and are recorded here rather than
-corrected in place:
+So `src/*.rs` is edited only when the *code* changes, and a stale doc-comment citation waits for
+the next change that is not comment-only rather than being corrected on its own.
 
-| in `src/` | says | reads today |
-|---|---|---|
-| `queue.rs` (header, and four method docs) | `Model/ListQueue.lean`, `LQ α`, `LQ.push`, `LQ.pop` | `lean/FramedChannel/Model/VecQueue/{Defs,Theorems}.lean`, `VQ α`, `VQ.push`, `VQ.pop` |
-| `ring_buffer.rs` (header) | `certificate/ring_buffer_push.yaml` | `certificate/ring_buffer.yaml` |
-| `channel.rs` (header) | `lean/FramedChannel/Composition/Channel.lean` | `lean/FramedChannel/Composition/Channel/Theorems.lean` |
+Three such citations -- `queue.rs`'s header and four method docs naming `Model/ListQueue.lean` and
+`LQ`, `ring_buffer.rs`'s header naming `certificate/ring_buffer_push.yaml`, and `channel.rs`'s
+header naming `lean/FramedChannel/Composition/Channel.lean` -- were carried by the change that
+added `src/stuffed_channel.rs`, which restaled the selection record anyway. They now read
+`Model/VecQueue/{Defs,Theorems}.lean` / `VQ`, `certificate/ring_buffer.yaml`, and
+`lean/FramedChannel/Composition/Channel/Theorems.lean`. None of them was ever a claim: each was a
+path or a spelling, and the gate checks the real link (the `module:`/`declaration:` fields of
+`certificate/*.yaml`, which are current) rather than the comment.
 
-Every one of them is a path or a spelling, never a claim: the theorems those comments point at
-are the same theorems, and the gate checks the real link (the `module:`/`declaration:` fields of
-`certificate/*.yaml`, which are current). The next change to `src/` that is not comment-only
-should carry these three corrections with it, since by then the selection is being re-recorded
-anyway.
+There is no outstanding correction as of that change. The rule stands: when one accumulates, record
+it here and let the next code change carry it.
 
 A separate, permanent naming exception is documented in `../README.md`'s unit name-mapping table:
 the extraction module is `queue`, not `vec_queue`, because `src/queue.rs` holds the
@@ -80,8 +79,9 @@ the extraction module is `queue`, not `vec_queue`, because `src/queue.rs` holds 
 ## Modules
 
 ### src/lib.rs
-`#![forbid(unsafe_code)]`, the eight modules, and the re-exports `Channel`, `DeliverFail`, `Frame`,
-`SendFail`, `MARKER`, `BoundedQueue`, `VecQueue`, `Full`, `RingBuffer`, `SeqNum`.
+`#![forbid(unsafe_code)]`, the nine modules, and the re-exports `Channel`, `DeliverFail`, `Frame`,
+`SendFail`, `MARKER`, `BoundedQueue`, `VecQueue`, `Full`, `RingBuffer`, `SeqNum`,
+`StuffedChannel`.
 
 ### src/ring_buffer.rs
 `RingBuffer<T: Default + Clone>` over a `Vec<T>` with fields `buf`, `head`, `tail`, `len`:
@@ -138,6 +138,23 @@ fail on a frame this channel sent; the length refusal is Lean's `send_refuses_to
 it and decrements the in-flight count, returning `Err(DeliverFail)` in exactly the cases where the
 Lean `deliver` returns `.fail`. Every method reaches the queue only through the trait, the
 executable picture of substitution.
+
+### src/stuffed_channel.rs
+`Channel`'s transparent counterpart: `encode_stuffed(payload, len, out)`, `parse_stuffed`, and
+`StuffedChannel<Q = RingBuffer<Frame>>` with `Q: BoundedQueue<Frame>`, whose public surface is
+`new`, `with_queue`, `send`, `deliver`, `take`, `queued`. It reuses `channel::{Frame, SendFail,
+DeliverFail}` and declares no parallel error types.
+
+`send` has the same two guards as `Channel::send` -- `queued + in_flight >= capacity`, then a
+length that does not fit a `u32` -- and then builds the same body (`varint::encode_u32` of the
+length, the payload, `crc8::crc8` of the payload) but hands it whole to `stuff::encode_frame`, so
+the body reaches the wire byte-stuffed and terminated by the HDLC flag. No byte written other than
+that terminator is the flag, which is the transparency `Channel` cannot offer and which the Lean
+theorem `StuffedChannel.wire_flag_free_of_send` states. There is no leading boundary byte: the
+terminating flag alone delimits a frame. `deliver` runs the three layers backwards -- `unstuff`,
+`decode_u32`, then a trailing check byte that must equal the CRC-8 of the payload with nothing left
+over -- and pushes the payload. The flag comes only from `stuff`; `channel::MARKER` is never read
+here, and nothing in this module claims the two constants agree.
 
 ### tests/differential.rs
 The differential suite: no randomness, no dependencies. It is the `validated` translation evidence

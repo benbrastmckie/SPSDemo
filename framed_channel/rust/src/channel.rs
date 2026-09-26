@@ -2,9 +2,9 @@
 //! The composite: a loopback channel whose `send` writes one frame onto the wire and whose
 //! `deliver` parses one frame off the wire and pushes it onto a bounded queue.
 //!
-//! The executable counterpart of `../../lean/FramedChannel/Composition/Channel.lean`, operation
-//! for operation: `send` and `deliver` have the same guards, the same order of effects, and one
-//! failure case each where the Lean model has `Result.fail`.
+//! The executable counterpart of `../../lean/FramedChannel/Composition/Channel/Theorems.lean`,
+//! operation for operation: `send` and `deliver` have the same guards, the same order of effects,
+//! and one failure case each where the Lean model has `Result.fail`.
 //!
 //! `send = push ∘ checksum ∘ encode` reads, in these names, as `varint::encode_u32` then
 //! `crc8::crc8` inside `encode_frame` at `send` time, then `BoundedQueue::push` at `deliver` time.
