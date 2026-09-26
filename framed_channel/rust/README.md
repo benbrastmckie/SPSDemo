@@ -54,7 +54,7 @@ level. `clippy::pedantic` is not gated. The exceptions in the tree:
 approval in `certificate/approvals.yaml` is bound to -- is a sha256 over the raw bytes of every
 `src/*.rs` plus `Cargo.toml` and `Cargo.lock`. It does not skip comments. Editing a `//!` or `///`
 line in `src/` therefore stales the selection record and turns `../check.sh`'s approvals stage
-red, and clearing it again costs a re-review of all 107 in-subset extraction candidates for a
+red, and clearing it again costs a re-review of all 116 in-subset extraction candidates for a
 change that alters no code.
 
 So `src/*.rs` is edited only when the *code* changes, and a stale doc-comment citation waits for
@@ -79,7 +79,7 @@ the extraction module is `queue`, not `vec_queue`, because `src/queue.rs` holds 
 ## Modules
 
 ### src/lib.rs
-`#![forbid(unsafe_code)]`, the nine modules, and the re-exports `Channel`, `DeliverFail`, `Frame`,
+`#![forbid(unsafe_code)]`, the ten modules, and the re-exports `Channel`, `DeliverFail`, `Frame`,
 `SendFail`, `MARKER`, `BoundedQueue`, `VecQueue`, `Full`, `RingBuffer`, `SeqNum`,
 `StuffedChannel`.
 

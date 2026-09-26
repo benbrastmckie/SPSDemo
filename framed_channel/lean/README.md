@@ -43,7 +43,8 @@ directory, and no flat unit module inside one.
   at `Instance.lean`, which is where the interface instance on the extracted or composed carrier
   is built.
 - **`Spec/` is not a unit layer.** It is one flat module per interface (`Spec/Queue.lean`,
-  `Spec/Codec.lean`, `Spec/Checksum.lean`, `Spec/Serial.lean`): an interface is not a unit, and nothing is proved
+  `Spec/Codec.lean`, `Spec/Checksum.lean`, `Spec/Serial.lean`, `Spec/Receiver.lean`): an interface is
+  not a unit, and nothing is proved
   about it.
 - **A flat module directly under a unit layer means package-level infrastructure**, never a unit.
   `../aeneas`'s `Bridge/Std.lean` is the only such module in the example, and its own header says
@@ -81,7 +82,7 @@ The library is layered, and `../check.sh`'s layer import rule fails the run on a
 └──────────────────────────────┬────────────────────────────────────┘
                                │ instantiate
 ┌──────────────────────────────┴────────────────────────────────────┐
-│ Spec/         Result, Queue, Codec, Checksum, Serial              │
+│ Spec/         Result, Queue, Codec, Checksum, Serial, Receiver    │
 │               L0 interfaces and L1 laws classes; no model         │
 └───────────────────────────────────────────────────────────────────┘
 ```
@@ -115,6 +116,17 @@ implementation.
   missing field is evidenced rather than merely absent. `defined` is the field that makes the
   totality law honest -- §3.2 leaves the comparison undefined on a pair exactly half the space
   apart. The module docstring records all three decisions.
+- **`Receiver.lean`**: `ReceiverModel` (L0: `feed`, `poll`, `accepted`, `dropped`, `room`, `quiet`)
+  and `ReceiverLaws` (L1: `poll_accepted`, `feed_append`, `quiet_before_flag`, `idle_flags`,
+  `run_exactly_one`, `feed_frame`). The one interface in this directory **written** rather than
+  checked: the receive path's operation shape -- feed a byte stream, observe an accepted-frame
+  sequence plus a drop count -- fits none of the four above. Every law is stated over the `accepted`
+  observation and the `dropped` count, never over a representation, the way `BoundedQueueLaws` is
+  stated over `toList`. Six fields and no more: resync progress, order preservation and soundness are
+  *derived* in `Composition/Receiver/`, and `room`/`quiet` are L0 fields for the same reason
+  `SerialModel.defined` is one -- `feed_frame` has a side condition, and the condition must be
+  expressible at the interface rather than smuggled into the operation it is about. The canonical
+  model is named in the module docstring, not instantiated here (as `Codec.lean` names `Leb128`).
 
 ### Model layer: `FramedChannel/Model/`
 
@@ -223,6 +235,28 @@ theorem. `RingBuffer/Defs.lean` is the one exception documented in its own heade
 - **`StuffedChannel/Instances.lean`**: `instTransparentHdlc`, the `Transparent` bundle discharged at
   HDLC stuffing from `Stuff.unstuff_stuff` and `Stuff.stuff_marker_free` alone, plus
   `deliver_spec_RB` and `deliver_spec_VQ` -- the substitution row at a second composite.
+- **`Receiver/Defs.lean`**: the definitions half of `Receiver/Theorems.lean` -- the receiver state
+  `Rcv` (the queue of accepted frames, the bytes of the run being scanned, a drop count), the
+  acceptance test `acceptRun` (one line of reuse: the run plus one flag handed to
+  `StuffedChannel.parseStuffed`, with nothing left over), `EncRun`, `finishRun`, `step`, `feed`,
+  `poll`, the observations `accepted`, `dropped`, `room` and `quiet`, the `ReceiverModel` instance and
+  the scan invariant `RcvInv`. Definitions only, and it imports no queue model. It lives under
+  `Composition/` rather than `Model/` precisely because its acceptance test is
+  `StuffedChannel.parseStuffed`: the layer rule forbids a `Model/` file from importing a
+  `Composition/` one, so a `Model/Receiver/` would have had to duplicate the run parser.
+- **`Receiver/Theorems.lean`**: the resynchronizing receive path, generic over any
+  `[QueueModel Q E] [BoundedQueueLaws Q E]`, any `CodecModel` carrying the `Transparent` bundle and
+  any `ChecksumModel` at L0. The six `ReceiverLaws` fields (`poll_accepted`, `feed_append`,
+  `quiet_before_flag`, `idle_flags`, `run_exactly_one`, `feed_frame`) and `accepted_sound`, the
+  headline: every frame a fresh receiver accepts off an **arbitrary** byte stream is the acceptance
+  test's own reading of a non-empty, flag-free, flag-terminated run that occurs in that stream. The
+  witnessing run is explicit rather than the frame's own encoding because the encoding form is
+  refuted in the kernel (see the countermodel table). `feed_frame` is where the `Transparent`
+  bundle's `body_flag_free` is load-bearing rather than decorative.
+- **`Receiver/Instances.lean`**: `instReceiverLaws` (so neither new class is vacuous), the two
+  **derived** theorems `resync_progress` and `order_preserved` -- each from `feed_append` and
+  `feed_frame`, which is why neither is a law field -- and `feed_spec_RB`/`feed_spec_VQ`, the
+  substitution row at a third composite.
 
 ### Registry and scoring: `Certify.lean`, `Registry.lean`
 
@@ -289,6 +323,8 @@ record:
 | `lt_trans_cand` | nothing -- it is the one row here that refutes a law a reader would simply **assume** holds: that RFC 1982's serial `lt` is transitive. `SerialLaws` therefore has no such field | `(0, 20000, 40000)`, a genuine three-cycle (`cycle_witness` records `lt 40000 0` too). The enumeration steps by 5000 rather than by powers of two, whose first failure would instead be the undefined region below |
 | `lt_total_cand` | `SeqNum.lt_total_of_defined`'s `defined` hypothesis | `32768`, exactly half the space from `0`, where §3.2 leaves the comparison undefined and neither number is serially before the other |
 | `channel_wire_marker_free` | nothing -- it refutes the claim that makes `StuffedChannel` necessary: that the unstuffed `Channel` writes the flag byte nowhere after a frame's leading boundary byte, so a receiver could scan to the next flag. It cannot. Distinct from `parseFrameResync_roundtrip` above in quantified object (the encoder's output, not a receiver's behaviour), witness, and mechanism (a payload byte colliding with the flag, not a varint length byte) | `[marker]`, the one-byte payload that is itself the flag |
+| `receiver_sound_unstuffed` | nothing -- it refutes the claim that makes stuffing load-bearing for the *receive* path: that a receiver which scans to the next flag is sound over the **unstuffed** `Channel` framing. It is not, so `Composition/Receiver/`'s soundness genuinely needs the marker-free body. Distinct from `parseFrameResync_roundtrip` (a hypothetical receiver's round trip) and from `channel_wire_marker_free` (the encoder's output) in quantified object: this one is about what a real receiver **accepts** | `[18#8, 126#8, 0#8]`, a payload whose middle byte is the flag -- the wire must carry the next frame's leading flag too, because a single `Channel` frame's final run is never flag-terminated and stays buffered |
+| `receiver_accepted_canonical` | soundness in the **canonical-encoding** form: that every accepted frame's own encoding occurs in the wire that produced it. False even over **stuffed** framing -- the one row here that survives stuffing -- because a LEB128 length prefix is not canonical in either the model or the Rust. This is what makes `accepted_sound`'s witnessing-**run** form necessary rather than defensive | `[129, 0, 0, 0, 126]`, where the receiver accepts `[0]` whose canonical encoding `[1, 0, 0, 126]` occurs nowhere in that wire |
 
 ### Tooling: `FramedChannel/SpecCheck.lean`
 

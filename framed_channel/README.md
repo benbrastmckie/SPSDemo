@@ -3,9 +3,9 @@
 A worked example of the verification pipeline on one small piece of software: a framed message
 channel in Rust, built from seven components -- a `RingBuffer`, a list-backed queue (`VecQueue`),
 a LEB128 `Varint` codec, a zigzag signed-varint codec (`Zigzag`), a `Crc8` checksum, an
-HDLC byte-stuffing codec (`Stuff`) and an RFC 1982 sequence number (`SeqNum`) -- plus two
-composites, `Channel` and its transparent counterpart `StuffedChannel`: the nine certified units of
-this example. Each unit has a Lean model, an interface
+HDLC byte-stuffing codec (`Stuff`) and an RFC 1982 sequence number (`SeqNum`) -- plus three
+composites, `Channel`, its transparent counterpart `StuffedChannel`, and the resynchronizing receive
+path `Receiver`: the ten certified units of this example. Each unit has a Lean model, an interface
 it instantiates, theorems, registry rows and a certificate manifest; each composite is proved from
 the component theorems and the interface laws alone. `StuffedChannel` is what makes `Stuff`
 load-bearing: it passes the whole frame body through the stuffing codec, so the flag byte reaches
@@ -163,7 +163,7 @@ the approved definitions layer, so wrapping it would move the approved digests; 
 records it after the fact, with the retrieval audit not run. The four class instances are recorded
 as `instance`, with no audit claimed.
 
-**Countermodels.** `lean/FramedChannel/Evidence/Countermodels.lean` refutes twelve rejected
+**Countermodels.** `lean/FramedChannel/Evidence/Countermodels.lean` refutes fourteen rejected
 candidate statements in the kernel: the varint theorems without `n < 2 ^ 32`, a receiver that treats
 a second `0x7E` as a new boundary, `idx_ne` with `i ≤ len`, a stuffed encoding that does not expand
 the payload, an unbounded stuffed-length bound, the zigzag bound and encoding bound without their
@@ -303,6 +303,7 @@ named without inventing anything.
 | `SeqNum` (`src/seq_num.rs`) | `seq_num` | `FramedChannel.SeqNum` / `Serial` | `FramedChannelChallenge.SeqNum`, `FramedChannelAeneasChallenge.SeqNum` | `FramedChannel.Bridge.seq_num` | -- (one model) | `certificate/seq_num.yaml` |
 | `Channel<Q>` (`src/channel.rs`) | `channel` | `FramedChannel.Channel` / `Chan` | `FramedChannelChallenge.Channel`, `FramedChannelAeneasChallenge.Channel` | `FramedChannel.Bridge.channel` | `_RB` / `_VQ` | `certificate/channel.yaml` |
 | `StuffedChannel<Q>` (`src/stuffed_channel.rs`) | `stuffed_channel` | `FramedChannel.StuffedChannel` / `SChan` | `FramedChannelChallenge.StuffedChannel`, `FramedChannelAeneasChallenge.StuffedChannel` | `FramedChannel.Bridge.stuffed_channel` | `_RB` / `_VQ` | `certificate/stuffed_channel.yaml` |
+| `Receiver<Q>` (`src/receiver.rs`) | `receiver` | `FramedChannel.Receiver` / `Rcv` | `FramedChannelChallenge.Receiver`, `FramedChannelAeneasChallenge.Receiver` | `FramedChannel.Bridge.receiver` | `_RB` / `_VQ` | `certificate/receiver.yaml` |
 
 The conventions the table encodes:
 
@@ -361,15 +362,22 @@ The per-component Rust-to-Lean mapping tables are in the module docstrings.
   the identity, proved for the `Vec<u8>` frames actually queued. The channel theorems keep two
   genuine hypotheses (room on the wire; `len + in_flight <= usize::MAX`, which the channel invariant
   discharges) and state the parser's wide-length divergence as a case split. The extractor itself
-  (rustc MIR, Charon, Aeneas and its library models) is trusted, not verified; five library
+  (rustc MIR, Charon, Aeneas and its library models) is trusted, not verified; six library
   functions Aeneas does not model are supplied as crate-local definitions with proved specs.
 - **`verified` is never applied to a whole unit**; see `certificate/README.md`, "Trust verdicts".
 - **The differential suite is finite testing on fixed vectors**, not a proof: `validated`
   evidence about the translation on the recorded inputs only. The staleness chain is `rust/src` to
   the extraction, the extraction to `certificate/vectors.txt` (bridge package only), and the vectors
   to the Rust (`cargo test`).
-- **The frame-corruption and resynchronization scenario has no concrete referent here.** It
-  illustrates Logos properties, but is not implemented.
+- **The frame-corruption and resynchronization scenario has a concrete referent: `Receiver<Q>`**
+  (`src/receiver.rs`, `certificate/receiver.yaml`). It accepts arbitrary bytes off the wire, scans to
+  the next flag, accepts the run it found or drops and counts it, and resumes -- and it is sound only
+  because a stuffed body is marker-free, which is why the negative half over `Channel`'s unstuffed
+  framing is refuted in the kernel (`receiver_sound_unstuffed`). Two standing limits replace the old
+  sentence, and both are recorded in `certificate/receiver.yaml`'s `not_claimed:` block: the run
+  buffer is **unbounded** -- a wire carrying no flag grows it without limit, and a bounded-buffer
+  variant is future work -- and **no gap or duplicate detection** is claimed, `SeqNum` not being
+  composed here.
 - **Approval rests on process.** The gate checks that each approval is current, not who made it.
 - Corruption on the wire, concurrency and the compiled binary are outside every certificate.
 

@@ -60,7 +60,8 @@ There is no `lib`, `overlays`, `templates`, or `checks` output.
 ### The certificate
 
 `framed_channel/certificate/` holds one YAML manifest per certified unit, named for the unit
-(`ring_buffer`, `vec_queue`, `varint`, `zigzag`, `crc8`, `stuff`, `channel`), a `shared.yaml` carrying the content every
+(`ring_buffer`, `vec_queue`, `varint`, `zigzag`, `crc8`, `stuff`, `seq_num`, `channel`,
+`stuffed_channel`, `receiver`), a `shared.yaml` carrying the content every
 manifest shares, generated whole-tree records written by every gate run (`digests.txt`,
 `axioms.txt`, `ladder.txt`, `countermodels.txt`, and, under `--recheck`, `recheck.txt`), and
 hand-maintained whole-tree records (`approvals.yaml`, `policy.txt`, `candidates.txt`). See

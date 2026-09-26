@@ -1,7 +1,7 @@
 # aeneas/
 
 The Lake package that connects the hand-written models in `../lean` to a real Charon/Aeneas
-extraction of the whole `../rust` crate. All nine units are extracted, axiom-free, and bridged to
+extraction of the whole `../rust` crate. All ten units are extracted, axiom-free, and bridged to
 their models: the ring buffer, the list-backed `VecQueue`, the varint codec, the zigzag
 signed-varint codec, the CRC-8 and the HDLC byte-stuffing codec, with the specification's laws
 instantiated directly on their extracted carriers, and the channel, whose composition theorems are proved once over any lawful extracted
@@ -64,7 +64,7 @@ extraction's own names. `Registry.lean` records the convention.
 
 **The Challenge library**, `FramedChannelAeneasChallenge/` (root
 `FramedChannelAeneasChallenge.lean`, modules `Queue`, `RingBuffer`, `VecQueue`, `Varint`, `Zigzag`,
-`Stuff`, `Crc8`, `SeqNum`, `Channel` and `StuffedChannel`; not a default target), restates every
+`Stuff`, `Crc8`, `SeqNum`, `Channel`, `StuffedChannel` and `Receiver`; not a default target), restates every
 registered bridge theorem with `:= sorry`, importing only `Defs` modules: the approved bridge
 specification, one approval unit per module (`Queue` holds the component-independent transport
 theorems and `cloneVecU8_isId`). See `../certificate/README.md`, "Select, Specify and approval".
@@ -124,7 +124,7 @@ Aeneas's `Result` monad:
 - the derived `Debug`/`Clone`/`PartialEq` impls.
 
 ### FramedChannelAeneas/Extracted/FunsExternal.lean
-Hand-written: the crate's trusted library models for the five functions the crate calls but the
+Hand-written: the crate's trusted library models for the six functions the crate calls but the
 pinned Aeneas library does not model. Each is a definition (never an axiom) with its `rust_fun`
 attribute and a citation of the Rust semantics:
 
@@ -132,9 +132,10 @@ attribute and a citation of the Rust semantics:
   `parse_frame`);
 - `<[T]>::split_first` (`parse_frame`);
 - `Vec::remove` (`VecQueue::pop`; panics when `index >= len`);
-- `<Vec<T> as Default>::default` (needed by `Channel::new`'s `RingBuffer<Vec<u8>>`).
+- `<Vec<T> as Default>::default` (needed by `Channel::new`'s `RingBuffer<Vec<u8>>`);
+- `Vec::is_empty` (`Receiver::finish_run`'s idle-flag early return; never panics).
 
-Four proved `@[step]` specs accompany them (`from_residual` needs none: its only residual is
+Five proved `@[step]` specs accompany them (`from_residual` needs none: its only residual is
 `None`). A spec proves a property of the Lean definition; that the definition models the Rust
 function is trusted, as Aeneas's own library models are.
 
@@ -241,6 +242,26 @@ exactly one divergence disjunct, the varint layer's -- the stuffing layer contri
 `Refinement.lean` and `Composite.lean` mirror the channel's, and `Composite.lean` adds
 `wire_flag_free_extracted`, the transparency claim on the extracted side. `Instance.lean`
 instantiates everything at both extracted records, the substitution row at a second composite.
+
+### FramedChannelAeneas/Bridge/Receiver/
+The resynchronizing receive path, four modules, and the smallest bridge of any composite here
+because the run parse is **reused**: `finish_run` calls `stuffed_channel::parse_stuffed`, already
+bridged above, so what this directory proves is the *scan*. `Defs.lean`: the relation `RcvRel` (three
+equations, one per field, the buffered run related through `bytesOf`), the receiver carriers
+`RcvRB`/`RcvVQ`, and `NoWideRun` -- which sits here rather than beside the loop that consumes it
+because `feed_refines` is registered and names it, and a Challenge module imports no module holding a
+proof. `Loop.lean`: `finish_run_refines`, the run judgement the scan calls at every flag and the row
+that covers the *private* `finish_run` in place of a differential vector; and `feed_loop_refines`,
+proved with `loop.spec_decr_nat` on the measure `bytes.len() - i`. That loop advances by **one**
+unconditionally and has three exits, against `Bridge/Stuff/Unstuff.lean`'s variable stride and seven,
+so the termination argument is structural: every branch decreases the measure, the rejected run
+included. `Refinement.lean`: `feed_refines`, `poll_refines`, `dropped_agrees` and `queued_agrees` over
+any lawful queue record. `feed_refines` carries three hypotheses, each genuine extracted behaviour --
+the buffered run's `usize` bound (`Vec::push`), the drop counter's (`saturating_add` is *total*, so
+nothing panics, but it caps at `Usize.max` where the model's `Nat` does not, so relating the two
+values still needs the bound), and `NoWideRun` (the divergence disjunct inherited from the reused run
+parser). `Instance.lean` instantiates `feed` and `poll` at both extracted records and starts from the
+Rust constructors, the substitution row at a third composite.
 
 ### FramedChannelAeneas/Bridge/Zigzag/, Bridge/SeqNum/
 Not yet described here. Both are registered, bridged and certified (`../certificate/zigzag.yaml`,
