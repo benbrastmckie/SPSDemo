@@ -40,6 +40,10 @@ import FramedChannelAeneas.Bridge.StuffedChannel.Frame
 import FramedChannelAeneas.Bridge.StuffedChannel.Refinement
 import FramedChannelAeneas.Bridge.StuffedChannel.Composite
 import FramedChannelAeneas.Bridge.StuffedChannel.Instance
+import FramedChannelAeneas.Bridge.Receiver.Defs
+import FramedChannelAeneas.Bridge.Receiver.Loop
+import FramedChannelAeneas.Bridge.Receiver.Refinement
+import FramedChannelAeneas.Bridge.Receiver.Instance
 
 /-!
 # Registry: the bridge package's rows, and the combined bank
@@ -132,6 +136,18 @@ trait, whose component-independent bridge (`QueueSim` and the transport theorems
   `stuff.decode_err_iff` being an exact iff. There is no length-126 row here and none is owed: the
   marker byte in a length prefix is stuffed away, and the round trip already holds at every payload
   including marker-bearing ones with no hypothesis.
+* The extracted resynchronizing receive path (`Bridge/Receiver/`), the receive-side counterpart of
+  the transparent channel: `finish_run_refines`, the run judgement the scan loop calls at every flag
+  and the row that covers the *private* `finish_run` (no differential vector can call it); the
+  per-operation refinements over any lawful queue record, `feed_refines` and `poll_refines` as `E2`,
+  `dropped_agrees` and `queued_agrees` as `E1`; and the substitution rows at both extracted queues,
+  the idle constructors `new_idle_RB` and `with_queue_idle_VQ` as `E1` and the `_RB`/`_VQ`
+  instantiations of `feed`/`poll` as `E2`. Eleven rows against the transparent channel's
+  twenty-four, and the difference is reuse rather than omission: the run parse is
+  `stuffed_channel.parse_stuffed`, already registered, so this unit's own content is the scan.
+  `feed_refines` carries three hypotheses -- the buffered run's length bound, the drop counter's
+  (`saturating_add` caps where the model's `Nat` does not, so panic-freedom is not value agreement)
+  and `NoWideRun` -- and `certificate/receiver.yaml` records all three.
 
 Deliberately not registered: the `Aeneas` step lemmas `set_spec`/`get_spec` and `set_opt_some`,
 the `BQ` lifting lemmas `pushBQ_of_push`/`popBQ_of_pop`, `len_agrees` (an input to
@@ -431,7 +447,31 @@ def items : List CertifiedItem :=
     register% stuffed_channel.send_deliver_from_new_RB ItemType.E2 2 true 3473441069
       "from StuffedChannel::new, send then deliver returns exactly the payload and queued is 1",
     register% stuffed_channel.send_deliver_from_new_VQ ItemType.E2 2 true 4072884471
-      "from StuffedChannel::with_queue at VecQueue, send then deliver returns the payload, queued 1" ]
+      "from StuffedChannel::with_queue at VecQueue, send then deliver returns the payload, queued 1",
+    -- The extracted resynchronizing receive path: the run judgement and the scan's operations
+    register% receiver.finish_run_refines ItemType.E2 2 true 2023119827
+      "the extracted finish_run judges a run exactly as the model does, the wide-length divergence stated",
+    register% receiver.feed_refines ItemType.E2 2 true 1645347416
+      "the extracted feed refines Receiver.feed over any simulating queue record",
+    register% receiver.poll_refines ItemType.E2 2 true 752336997
+      "the extracted poll hands back exactly what the specification queue pops, None exactly on fail",
+    register% receiver.dropped_agrees ItemType.E1 1 true 2944714371
+      "the extracted dropped counter is the specification's drop count",
+    register% receiver.queued_agrees ItemType.E1 1 true 1829937693
+      "the extracted queued is the length of the specification queue's contents",
+    -- and its substitution rows at both extracted queues
+    register% receiver.new_idle_RB ItemType.E1 1 true 1199007643
+      "Receiver::new starts idle at every capacity: no buffered run, no drops, nothing accepted",
+    register% receiver.with_queue_idle_VQ ItemType.E1 1 true 794053247
+      "Receiver::with_queue at the extracted VecQueue starts idle",
+    register% receiver.feed_refines_RB ItemType.E2 2 true 211955102
+      "feed_refines at the extracted ring buffer, no simulation hypothesis left",
+    register% receiver.feed_refines_VQ ItemType.E2 2 true 565359218
+      "feed_refines at the extracted VecQueue, no reproof",
+    register% receiver.poll_refines_RB ItemType.E2 2 true 1397941225
+      "poll_refines at the extracted ring buffer",
+    register% receiver.poll_refines_VQ ItemType.E2 2 true 1655138489
+      "poll_refines at the extracted VecQueue, no reproof" ]
 
 /-- The bridge package's own bank. -/
 def bank : List Item := toBank items
@@ -446,14 +486,14 @@ def allBank : List Item := toBank allItems
 #print axioms allItems
 #print axioms allBank
 
-/-- One hundred and twelve bridge rows. -/
-example : bank.length = 112 := by decide
+/-- One hundred and twenty-three bridge rows. -/
+example : bank.length = 123 := by decide
 
 -- At this many rows, every `decide` over the combined bank -- not only the witness strings --
 -- needs more than the default recursion depth.
 set_option maxRecDepth 4096 in
-/-- One hundred and ninety-two rows across both packages. -/
-example : allBank.length = 192 := by decide
+/-- Two hundred and three rows across both packages. -/
+example : allBank.length = 203 := by decide
 
 set_option maxRecDepth 4096 in
 /-- Every row, in both packages, names a nonvacuity witness. -/
@@ -464,10 +504,10 @@ example : noOpenScored allBank := noOpenScored_all allBank
 
 set_option maxRecDepth 4096 in
 /-- The kernel-scored total over both packages. -/
-example : totalScore allBank = 502 := by decide
+example : totalScore allBank = 531 := by decide
 
 set_option maxRecDepth 4096 in
 /-- The achievable total over both packages, counting the two compiler-trusting core rows. -/
-example : totalMax allBank = 506 := by decide
+example : totalMax allBank = 535 := by decide
 
 end FramedChannel.Bridge

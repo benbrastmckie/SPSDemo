@@ -178,12 +178,6 @@ variable {S Q : Type} [QueueModel Q (alloc.vec.Vec Std.U8)]
 local notation "MFEED" => FramedChannel.Receiver.feed (C := FramedChannel.Stuff.Hdlc)
   (K := FramedChannel.Crc8.Bitwise) (E := alloc.vec.Vec Std.U8) FramedChannel.Stuff.marker
 
-/-- No run this receiver will judge declares a length of `2 ^ 32` or more. -/
-def NoWideRun (bytes : Slice Std.U8) (m : Rcv (Ext S Q (alloc.vec.Vec Std.U8) inst R)) : Prop :=
-  ∀ k, k ≤ bytes.val.length →
-    ¬ DeclaresWideLength ((MFEED m ((bytesOf bytes.val).take k)).buf ++
-      [FramedChannel.Stuff.marker])
-
 def FeedInv (bytes : Slice Std.U8) (m : Rcv (Ext S Q (alloc.vec.Vec Std.U8) inst R))
     (x : receiver.Receiver S × Std.Usize) : Prop :=
   x.2.val ≤ bytes.val.length ∧

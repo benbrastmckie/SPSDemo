@@ -9,7 +9,11 @@ import FramedChannel.Composition.Receiver.Defs
 
 * the relation `RcvRel` (the abstraction from the extracted `Receiver<Q>` record to the
   specification `Rcv`);
-* the receiver carriers `RcvRB` and `RcvVQ` (used by `Instance.lean`).
+* the receiver carriers `RcvRB` and `RcvVQ` (used by `Instance.lean`);
+* `NoWideRun`, `feed`'s wide-length side condition. It is stated entirely in model terms, and it
+  sits here rather than in `Loop.lean` beside the loop that consumes it precisely because
+  `feed_refines` is registered and mentions it: a definition a registered statement names has to be
+  reachable from the Challenge module, which imports no module holding a proof.
 
 It holds definitions only, so that the Challenge module `FramedChannelAeneasChallenge.Receiver` can
 import them without importing a registered theorem.
@@ -60,6 +64,19 @@ def RcvRel {inst : queue.BoundedQueue S (alloc.vec.Vec Std.U8)} {R : S → Q →
     (c : receiver.Receiver S)
     (m : Rcv (Ext S Q (alloc.vec.Vec Std.U8) inst R)) : Prop :=
   c.out = m.out.1 ∧ bytesOf c.buf.val = m.buf ∧ c.dropped.val = m.dropped
+
+/-- No run this receiver will judge declares a length of `2 ^ 32` or more: the `DeclaresWideLength`
+disjunct `finish_run` inherits from the reused run parser, quantified over every prefix of the fed
+wire. `finish_run_refines` can state that disjunct in its postcondition because it judges one run;
+`feed` judges many, so it takes this as a hypothesis instead. Stated in model terms only, so a client
+discharges it by knowing what it fed. -/
+def NoWideRun {inst : queue.BoundedQueue S (alloc.vec.Vec Std.U8)} {R : S → Q → Prop}
+    (bytes : Slice Std.U8) (m : Rcv (Ext S Q (alloc.vec.Vec Std.U8) inst R)) : Prop :=
+  ∀ k, k ≤ bytes.val.length →
+    ¬ FramedChannel.Bridge.stuffed_channel.DeclaresWideLength
+      ((FramedChannel.Receiver.feed (C := FramedChannel.Stuff.Hdlc)
+        (K := FramedChannel.Crc8.Bitwise) (E := alloc.vec.Vec Std.U8) FramedChannel.Stuff.marker m
+          ((bytesOf bytes.val).take k)).buf ++ [FramedChannel.Stuff.marker])
 
 end
 
