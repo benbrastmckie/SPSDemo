@@ -78,10 +78,10 @@ returns `None` with the receiver unchanged exactly when the specification's pop 
 theorem poll_refines (c : receiver.Receiver S)
     (m : Rcv (Ext S Q (alloc.vec.Vec Std.U8) inst R)) (hR : RcvRel c m) :
     receiver.Receiver.poll inst c ⦃ o c' =>
-      match FramedChannel.Receiver.poll (Q := Ext S Q (alloc.vec.Vec Std.U8) inst R)
-          (E := alloc.vec.Vec Std.U8) m with
-      | .ok (y, m') => o = some y ∧ RcvRel c' m'
-      | .fail => o = none ∧ c' = c ⦄ := by
+      (∀ y m', FramedChannel.Receiver.poll (Q := Ext S Q (alloc.vec.Vec Std.U8) inst R)
+          (E := alloc.vec.Vec Std.U8) m = .ok (y, m') → o = some y ∧ RcvRel c' m') ∧
+      (FramedChannel.Receiver.poll (Q := Ext S Q (alloc.vec.Vec Std.U8) inst R)
+          (E := alloc.vec.Vec Std.U8) m = .fail → o = none ∧ c' = c) ⦄ := by
   obtain ⟨hout, hbufeq, hdrop⟩ := hR
   obtain ⟨q, hq⟩ := m.out.2
   have hq' : R c.out q := hout ▸ hq
@@ -95,7 +95,7 @@ theorem poll_refines (c : receiver.Receiver S)
     rw [hp, hpe]
     simp only [bind_tc_ok]
     simp only [FramedChannel.Receiver.poll, hext]
-    exact ⟨rfl, rfl⟩
+    exact ⟨fun y m' h => absurd h (by simp), fun _ => ⟨rfl, rfl⟩⟩
   · obtain ⟨p, hp, y, q', hy, hpop, hR'⟩ := (WP.spec_equiv_exists _ _).mp
       (hsim.pop_ok c.out q hq' he)
     obtain ⟨o, s'⟩ := p
@@ -109,6 +109,10 @@ theorem poll_refines (c : receiver.Receiver S)
     rw [hp]
     simp only [bind_tc_ok]
     simp only [FramedChannel.Receiver.poll, hext]
+    refine ⟨fun y0 m0 h => ?_, fun h => absurd h (by simp)⟩
+    simp only [Result.ok.injEq, Prod.mk.injEq] at h
+    obtain ⟨hy0, hm0⟩ := h
+    subst hy0; subst hm0
     exact ⟨rfl, rfl, hbufeq, hdrop⟩
 
 omit hfun hsim in
