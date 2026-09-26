@@ -51,6 +51,10 @@ def u32 (n : Nat) : Std.U32 :=
   UScalar.ofNatCore (n % 2 ^ 32)
     (by have := Nat.mod_lt n (show 2 ^ 32 > 0 by decide); simp; omega)
 
+def u16 (n : Nat) : Std.U16 :=
+  UScalar.ofNatCore (n % 2 ^ 16)
+    (by have := Nat.mod_lt n (show 2 ^ 16 > 0 by decide); simp; omega)
+
 def usize (n : Nat) : Std.Usize :=
   if h : n ≤ Usize.max then UScalar.ofNatCore n (by simp; scalar_tac) else 0#usize
 
@@ -303,6 +307,50 @@ def unstuffFields (bs : List Nat) : List String :=
     | .Err .Truncated => ["err truncated"]
     | .Err .BadEscape => ["err badescape"]
 
+/-! ## SeqNum: the extracted RFC 1982 serial-number arithmetic
+
+The vectors are chosen to carry this unit's actual content rather than filler. They cross the wrap
+boundary in **both** directions, and they include the **non-transitive triple itself**
+(`0 -> 20000 -> 40000 -> 0`), which is the one behaviour of this unit a reader is most likely to
+assume away; the vector file is where the compiled Rust is held to it. They also include the pair
+exactly half the space apart (`0` and `32768`), RFC 1982 §3.2's undefined region, where the Rust
+answers `false` in both directions -- a fact no proof in this repository states about the *Rust*, so
+these two records are the only place it is checked. -/
+
+def seqNumValues : List Nat := [0, 1, 4, 20000, 32768, 40000, 65530, 65535]
+
+/-- `add` arguments: the increment `0` (which is *not* serially after its argument), the two
+wraparound cases, half the space, and the increment that returns to the start. -/
+def seqNumAddPairs : List (Nat × Nat) :=
+  [ (0, 0), (0, 1), (20000, 20000), (65530, 10), (65535, 1), (0, 32768), (4, 65526) ]
+
+/-- Comparison and distance arguments. The first four are the non-transitive cycle; the next two are
+the undefined region; the rest cross the wrap boundary both ways, and include the reflexive pair. -/
+def seqNumPairs : List (Nat × Nat) :=
+  [ (0, 20000), (20000, 40000), (0, 40000), (40000, 0)
+  , (0, 32768), (32768, 0)
+  , (65530, 4), (4, 65530), (65535, 0), (0, 65535), (0, 0), (20000, 20000) ]
+
+def seqNumRecs : List String :=
+  seqNumValues.map (fun n =>
+      mkRec (mkLhs "seq_num.new" (toString n))
+        (fields (seq_num.SeqNum.new (u16 n)) fun s => [toString s.value.val]))
+    ++ seqNumValues.map (fun n =>
+      mkRec (mkLhs "seq_num.get" (toString n))
+        (fields (seq_num.SeqNum.get ⟨u16 n⟩) fun v => [toString v.val]))
+    ++ seqNumValues.map (fun n =>
+      mkRec (mkLhs "seq_num.succ" (toString n))
+        (fields (seq_num.SeqNum.succ ⟨u16 n⟩) fun s => [toString s.value.val]))
+    ++ seqNumAddPairs.map (fun p =>
+      mkRec (mkLhs "seq_num.add" (natsToStr [p.1, p.2]))
+        (fields (seq_num.SeqNum.add ⟨u16 p.1⟩ (u16 p.2)) fun s => [toString s.value.val]))
+    ++ seqNumPairs.map (fun p =>
+      mkRec (mkLhs "seq_num.dist" (natsToStr [p.1, p.2]))
+        (fields (seq_num.SeqNum.dist ⟨u16 p.1⟩ ⟨u16 p.2⟩) fun d => [toString d.val]))
+    ++ seqNumPairs.map (fun p =>
+      mkRec (mkLhs "seq_num.lt" (natsToStr [p.1, p.2]))
+        (fields (seq_num.SeqNum.lt ⟨u16 p.1⟩ ⟨u16 p.2⟩) fun b => [boolToStr b]))
+
 def crc8Vectors : List (List Nat) :=
   [ [], asciiBytes "a", asciiBytes "123456789", [0, 0, 0], [255, 255, 255, 255],
     asciiBytes "framed_channel" ]
@@ -535,6 +583,17 @@ def crc8Section : List String :=
        , "#   from 0 to 255."
        , mkRec "crc8.incremental_prefixes" [String.intercalate " " crc8IncrementalDigests] ]
 
+def seqNumSection : List String :=
+  [ "# ---- SeqNum: the extracted new / get / succ / add / dist / lt ----------------------"
+  , "# RFC 1982 serial-number arithmetic over a 16-bit space. new and get records carry the stored"
+  , "#   word; succ, add and dist records carry the resulting word; lt records carry 1 or 0."
+  , "# All arithmetic wraps: succ 65535 => 0, add 65530 10 => 4, dist 4 65530 => 65530."
+  , "# The lt records include the NON-TRANSITIVE triple -- lt 0 20000 => 1, lt 20000 40000 => 1,"
+  , "#   lt 0 40000 => 0 and lt 40000 0 => 1, a genuine three-cycle (refuted in the kernel in"
+  , "#   lean/FramedChannel/Evidence/Countermodels.lean) -- and the undefined region, where 0 and"
+  , "#   32768 are exactly half the space apart and lt is 0 in both directions."
+  ] ++ seqNumRecs
+
 def channelSection : List String :=
   [ "# ---- Channel: the extracted frame codec ------------------------------------------"
   , "# Per payload: the encoding, its parse, its parse with a trailing byte, one byte short and a"
@@ -552,7 +611,7 @@ def channelSection : List String :=
 
 def output (rev : String) : List String :=
   header rev ++ queueSection ++ varintSection ++ zigzagSection ++ stuffSection
-    ++ crc8Section ++ channelSection
+    ++ crc8Section ++ seqNumSection ++ channelSection
 
 end GenVectors
 

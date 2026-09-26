@@ -321,6 +321,69 @@ crc8.table 102 114 97 109 101 100 95 99 104 97 110 110 101 108 => 133
 # Compact record: digest k is the extracted crc8 of the byte sequence 0, 1, ..., k, for k
 #   from 0 to 255.
 crc8.incremental_prefixes => 0 7 27 72 227 188 47 216 62 133 164 68 255 208 20 65 176 110 115 39 153 173 40 189 114 22 36 189 110 94 199 6 242 55 107 255 15 214 222 225 113 143 114 136 117 143 110 192 222 131 30 195 203 244 64 66 97 143 2 175 240 109 190 142 100 251 38 60 111 214 249 51 102 205 156 43 50 122 140 71 101 140 20 210 155 100 158 113 223 155 73 126 238 16 237 23 66 233 184 15 22 94 168 99 49 143 181 20 111 14 39 255 164 37 162 57 228 254 177 92 252 146 150 141 217 117 49 237 4 146 112 215 190 161 245 89 57 25 240 102 152 107 181 166 130 121 159 36 25 173 161 130 70 19 182 195 154 21 184 245 172 35 142 195 50 236 241 165 35 191 107 78 160 35 170 27 88 145 233 129 139 186 36 240 255 213 10 30 103 8 11 5 85 229 245 130 213 112 11 106 103 67 182 116 33 138 219 108 61 138 143 147 210 21 71 249 231 186 39 250 242 205 121 123 200 223 179 183 190 134 39 78 123 247 83 33 109 137 50 29 141 115 142 116 137 115 146 60 82 88 103 221 231 70 33 20
+# ---- SeqNum: the extracted new / get / succ / add / dist / lt ----------------------
+# RFC 1982 serial-number arithmetic over a 16-bit space. new and get records carry the stored
+#   word; succ, add and dist records carry the resulting word; lt records carry 1 or 0.
+# All arithmetic wraps: succ 65535 => 0, add 65530 10 => 4, dist 4 65530 => 65530.
+# The lt records include the NON-TRANSITIVE triple -- lt 0 20000 => 1, lt 20000 40000 => 1,
+#   lt 0 40000 => 0 and lt 40000 0 => 1, a genuine three-cycle (refuted in the kernel in
+#   lean/FramedChannel/Evidence/Countermodels.lean) -- and the undefined region, where 0 and
+#   32768 are exactly half the space apart and lt is 0 in both directions.
+seq_num.new 0 => 0
+seq_num.new 1 => 1
+seq_num.new 4 => 4
+seq_num.new 20000 => 20000
+seq_num.new 32768 => 32768
+seq_num.new 40000 => 40000
+seq_num.new 65530 => 65530
+seq_num.new 65535 => 65535
+seq_num.get 0 => 0
+seq_num.get 1 => 1
+seq_num.get 4 => 4
+seq_num.get 20000 => 20000
+seq_num.get 32768 => 32768
+seq_num.get 40000 => 40000
+seq_num.get 65530 => 65530
+seq_num.get 65535 => 65535
+seq_num.succ 0 => 1
+seq_num.succ 1 => 2
+seq_num.succ 4 => 5
+seq_num.succ 20000 => 20001
+seq_num.succ 32768 => 32769
+seq_num.succ 40000 => 40001
+seq_num.succ 65530 => 65531
+seq_num.succ 65535 => 0
+seq_num.add 0 0 => 0
+seq_num.add 0 1 => 1
+seq_num.add 20000 20000 => 40000
+seq_num.add 65530 10 => 4
+seq_num.add 65535 1 => 0
+seq_num.add 0 32768 => 32768
+seq_num.add 4 65526 => 65530
+seq_num.dist 0 20000 => 20000
+seq_num.dist 20000 40000 => 20000
+seq_num.dist 0 40000 => 40000
+seq_num.dist 40000 0 => 25536
+seq_num.dist 0 32768 => 32768
+seq_num.dist 32768 0 => 32768
+seq_num.dist 65530 4 => 10
+seq_num.dist 4 65530 => 65526
+seq_num.dist 65535 0 => 1
+seq_num.dist 0 65535 => 65535
+seq_num.dist 0 0 => 0
+seq_num.dist 20000 20000 => 0
+seq_num.lt 0 20000 => 1
+seq_num.lt 20000 40000 => 1
+seq_num.lt 0 40000 => 0
+seq_num.lt 40000 0 => 1
+seq_num.lt 0 32768 => 0
+seq_num.lt 32768 0 => 0
+seq_num.lt 65530 4 => 1
+seq_num.lt 4 65530 => 0
+seq_num.lt 65535 0 => 1
+seq_num.lt 0 65535 => 0
+seq_num.lt 0 0 => 0
+seq_num.lt 20000 20000 => 0
 # ---- Channel: the extracted frame codec ------------------------------------------
 # Per payload: the encoding, its parse, its parse with a trailing byte, one byte short and a
 #   corrupted check byte. parse_frame records carry `some; <payload>; <consumed>` or `none`.

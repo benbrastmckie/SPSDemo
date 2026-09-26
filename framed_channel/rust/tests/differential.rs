@@ -9,6 +9,7 @@ use framed_channel::channel::{encode_frame, parse_frame, DeliverFail, SendFail};
 use framed_channel::crc8::{crc8, crc8_table};
 use framed_channel::queue::BoundedQueue;
 use framed_channel::ring_buffer::{Full, RingBuffer};
+use framed_channel::seq_num::SeqNum;
 use framed_channel::stuff::{encode_frame as stuff_encode_frame, stuff, unstuff, UnstuffError};
 use framed_channel::varint::{decode_u32, encode_u32, VarintError};
 use framed_channel::zigzag::{decode_i32, encode_i32, unzigzag, zigzag};
@@ -512,6 +513,23 @@ fn one_i32(ts: &[String]) -> i32 {
     match ts.first() {
         Some(t) => t.parse::<i32>().expect("vectors.txt: signed value does not fit i32"),
         None => panic!("vectors.txt: expected one signed scalar"),
+    }
+}
+
+fn one_u16(ts: &[String]) -> u16 {
+    match ts.first() {
+        Some(t) => t.parse::<u16>().expect("vectors.txt: sequence number does not fit u16"),
+        None => panic!("vectors.txt: expected one sequence number"),
+    }
+}
+
+fn two_u16(ts: &[String]) -> (u16, u16) {
+    match (ts.first(), ts.get(1)) {
+        (Some(a), Some(b)) => (
+            a.parse::<u16>().expect("vectors.txt: sequence number does not fit u16"),
+            b.parse::<u16>().expect("vectors.txt: sequence number does not fit u16"),
+        ),
+        _ => panic!("vectors.txt: expected two sequence numbers"),
     }
 }
 
@@ -1036,6 +1054,95 @@ fn stuff_agrees_with_extracted_vectors() {
     inputs.report();
 }
 
+/// `SeqNum` against the extracted `new`/`get`/`succ`/`add`/`dist`/`lt`, on vectors that cross the
+/// wrap boundary in both directions.
+///
+/// Two groups of records are the reason this test exists rather than being filler. The `lt` records
+/// carry the **non-transitive triple**: `lt(0, 20000)`, `lt(20000, 40000)` and `lt(40000, 0)` all
+/// hold while `lt(0, 40000)` does not, a genuine three-cycle, and this is where the compiled Rust is
+/// held to it. The pair `0` and `32768` is RFC 1982 §3.2's undefined region -- exactly half the space
+/// apart, with `lt` false in both directions -- and no proof in this repository states that about the
+/// *Rust*, so these two records are the only place it is checked.
+#[test]
+fn seq_num_agrees_with_extracted_vectors() {
+    let mut inputs = Inputs::new("seq_num_agrees_with_extracted_vectors");
+    let records = parse_vectors();
+    let before = inputs.count;
+    let mut cycle_edges = 0usize;
+    let mut undefined_pairs = 0usize;
+    for r in &records {
+        match r.op.as_str() {
+            "seq_num.new" => {
+                inputs.saw();
+                let n = one_u16(&r.args);
+                assert_eq!(
+                    SeqNum::new(n).get(),
+                    one_u16(r.field(0)),
+                    "SeqNum::new disagrees for {n}"
+                );
+            }
+            "seq_num.get" => {
+                inputs.saw();
+                let n = one_u16(&r.args);
+                assert_eq!(SeqNum::new(n).get(), one_u16(r.field(0)), "get disagrees for {n}");
+            }
+            "seq_num.succ" => {
+                inputs.saw();
+                let n = one_u16(&r.args);
+                assert_eq!(
+                    SeqNum::new(n).succ().get(),
+                    one_u16(r.field(0)),
+                    "succ disagrees for {n}"
+                );
+            }
+            "seq_num.add" => {
+                inputs.saw();
+                let (n, k) = two_u16(&r.args);
+                assert_eq!(
+                    SeqNum::new(n).add(k).get(),
+                    one_u16(r.field(0)),
+                    "add disagrees for {n} {k}"
+                );
+            }
+            "seq_num.dist" => {
+                inputs.saw();
+                let (a, b) = two_u16(&r.args);
+                assert_eq!(
+                    SeqNum::new(a).dist(SeqNum::new(b)),
+                    one_u16(r.field(0)),
+                    "dist disagrees for {a} {b}"
+                );
+            }
+            "seq_num.lt" => {
+                inputs.saw();
+                let (a, b) = two_u16(&r.args);
+                let want = flag(r, 0);
+                assert_eq!(SeqNum::new(a).lt(SeqNum::new(b)), want, "lt disagrees for {a} {b}");
+                // The three edges of the non-transitive cycle, and the two undefined-region pairs.
+                if (a, b) == (0, 20000) || (a, b) == (20000, 40000) || (a, b) == (40000, 0) {
+                    assert!(want, "the cycle edge lt({a}, {b}) is no longer true");
+                    cycle_edges += 1;
+                }
+                if (a, b) == (0, 32768) || (a, b) == (32768, 0) {
+                    assert!(!want, "the undefined-region pair lt({a}, {b}) is no longer false");
+                    undefined_pairs += 1;
+                }
+            }
+            _ => {}
+        }
+    }
+    assert!(inputs.count > before, "vectors.txt carries no seq_num records");
+    // A vector set that lost either group would still pass every assertion above, so the two groups
+    // are counted rather than assumed.
+    assert_eq!(cycle_edges, 3, "vectors.txt has lost an edge of the non-transitive cycle");
+    assert_eq!(undefined_pairs, 2, "vectors.txt has lost an undefined-region pair");
+    assert!(
+        !SeqNum::new(0).lt(SeqNum::new(40000)),
+        "lt(0, 40000) must be false: that is what makes the cycle non-transitive"
+    );
+    inputs.report();
+}
+
 /// of one -- would leave every test passing while checking less. This asserts instead that each
 /// translated operation is present with every branch, both queue records and both channel queues,
 /// the zero-capacity traces, the compact CRC record, the out-of-domain class, and that no record
@@ -1072,11 +1179,12 @@ fn extracted_vectors_cover_every_translated_operation() {
         );
     }
     #[rustfmt::skip]
-    let total: [&str; 13] = [
+    let total: [&str; 19] = [
         "ringbuffer.new", "vecqueue.new", "channel.ringbuffer.new", "channel.vecqueue.new",
         "varint.encode", "crc8.bits", "crc8.table", "channel.encode_frame",
         "stuff.stuff", "stuff.encode_frame",
         "zigzag.encode", "zigzag.zigzag", "zigzag.unzigzag",
+        "seq_num.new", "seq_num.get", "seq_num.succ", "seq_num.add", "seq_num.dist", "seq_num.lt",
     ];
     for op in total {
         inputs.saw();
