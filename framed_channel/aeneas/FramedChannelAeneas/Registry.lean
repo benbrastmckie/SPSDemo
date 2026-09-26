@@ -26,6 +26,8 @@ import FramedChannelAeneas.Bridge.Crc8.Defs
 import FramedChannelAeneas.Bridge.Crc8.Bitwise
 import FramedChannelAeneas.Bridge.Crc8.Table
 import FramedChannelAeneas.Bridge.Crc8.Instance
+import FramedChannelAeneas.Bridge.SeqNum.Defs
+import FramedChannelAeneas.Bridge.SeqNum.Instance
 import FramedChannelAeneas.Bridge.Channel.Defs
 import FramedChannelAeneas.Bridge.Channel.Abstraction
 import FramedChannelAeneas.Bridge.Channel.Frame
@@ -89,6 +91,18 @@ trait, whose component-independent bridge (`QueueSim` and the transport theorems
 * The extracted CRC-8 (`Bridge/Crc8/`): `crc8_refines`, `crc8_table_refines`, the extracted-level
   equivalence `crc8_table_eq_extracted` and the two `ChecksumLaws` instances as `E2`, and
   `table_agrees` as `E1`.
+* The extracted RFC 1982 sequence number (`Bridge/SeqNum/`): `succ_refines`, `add_refines`,
+  `dist_refines`, `lt_refines` and `instSerialLaws_extracted` as `E2`; the extracted `HALF` const
+  (`HALF_val`) and the two accessor agreements `new_refines` and `get_refines` as `E1`. There are
+  exactly as many rows as there are non-derived in-subset candidates, `HALF` included, because the
+  extraction emits a `pub const` as its own selection candidate. Every triple is
+  **hypothesis-free**: `core.num.U16.wrapping_add` / `wrapping_sub` are pure functions in Aeneas's
+  library, so wraparound is the definition rather than a failure to exclude. Left unregistered:
+  `half_eq`, the three abstraction-bijection lemmas (`toModel_ofModel`, `ofModel_toModel`,
+  `toModel_inj`, plus `toModel_ne`), the four `ext*` lowering lemmas and `ext_iter` -- steps of the
+  registered rows, not obligations. **No transitivity row**, at either level: RFC 1982's serial
+  comparison has genuine three-cycles, refuted in the kernel in
+  `lean/FramedChannel/Evidence/Countermodels.lean`.
 * `cloneVecU8_isId` (`Bridge/Queue/Traits.lean`), as `E1`: the `CloneIsId` the ring buffer instance
   needs at the frame type, proved for the actual derived `Clone` of `Vec<u8>`.
 * The extracted channel (`Bridge/Channel/`): the frame codec refinements `encode_frame_refines`
@@ -268,6 +282,29 @@ def items : List CertifiedItem :=
       "ChecksumLaws on the extracted bitwise CRC-8",
     register% crc8.instChecksumLaws_extractedTabled ItemType.E2 2 true 3510475711
       "ChecksumLaws on the extracted table-driven CRC-8",
+    -- The extracted RFC 1982 sequence number (refinements E2, the const and the two accessors E1).
+    -- One row per non-derived in-subset candidate of certificate/candidates.txt, HALF_val included:
+    -- the extraction emits a `pub const` as its own item, so it needs a statement about it like any
+    -- function. No row for transitivity, and there never will be -- lean/FramedChannel/Evidence/
+    -- Countermodels.lean refutes it in the kernel. Left unregistered: half_eq, the three
+    -- abstraction-bijection lemmas, the four ext*-lowering lemmas and ext_iter, which are steps of
+    -- the rows below rather than obligations of their own.
+    register% seq_num.HALF_val             ItemType.E1 1 true 1948023598
+      "the extracted HALF const is 2 ^ 15",
+    register% seq_num.new_refines          ItemType.E1 1 true 3125499594
+      "the extracted constructor stores exactly the word it is given",
+    register% seq_num.get_refines          ItemType.E1 1 true 969973672
+      "the extracted accessor returns exactly the stored word",
+    register% seq_num.succ_refines         ItemType.E2 2 true 4279886007
+      "the extracted succ is the model's succ, wraparound included, with no failure case",
+    register% seq_num.add_refines          ItemType.E2 2 true 3675267517
+      "the extracted add is the model's add on every increment, no range hypothesis",
+    register% seq_num.dist_refines         ItemType.E2 2 true 3898242914
+      "the extracted dist is the model's forward modular distance",
+    register% seq_num.lt_refines           ItemType.E2 2 true 1716426734
+      "the extracted zero-test-then-compare agrees with the model's serial comparison on every pair",
+    register% seq_num.instSerialLaws_extracted ItemType.E2 2 true 4100308153
+      "SerialLaws on the extracted 16-bit sequence number",
     -- The frame clone record (E1)
     register% cloneVecU8_isId              ItemType.E1 1 true 1020675802
       "the derived Clone of Vec<u8> returns its argument, so CloneIsId is proved, not assumed",
@@ -333,14 +370,14 @@ def allBank : List Item := toBank allItems
 #print axioms allItems
 #print axioms allBank
 
-/-- Eighty-one bridge rows. -/
-example : bank.length = 81 := by decide
+/-- Eighty-nine bridge rows. -/
+example : bank.length = 89 := by decide
 
 -- At this many rows, every `decide` over the combined bank -- not only the witness strings --
 -- needs more than the default recursion depth.
 set_option maxRecDepth 4096 in
-/-- One hundred and twenty-seven rows across both packages. -/
-example : allBank.length = 127 := by decide
+/-- One hundred and forty-six rows across both packages. -/
+example : allBank.length = 146 := by decide
 
 set_option maxRecDepth 4096 in
 /-- Every row, in both packages, names a nonvacuity witness. -/
@@ -351,10 +388,10 @@ example : noOpenScored allBank := noOpenScored_all allBank
 
 set_option maxRecDepth 4096 in
 /-- The kernel-scored total over both packages. -/
-example : totalScore allBank = 332 := by decide
+example : totalScore allBank = 378 := by decide
 
 set_option maxRecDepth 4096 in
 /-- The achievable total over both packages, counting the one compiler-trusting core row. -/
-example : totalMax allBank = 334 := by decide
+example : totalMax allBank = 382 := by decide
 
 end FramedChannel.Bridge

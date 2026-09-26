@@ -6,6 +6,7 @@ import FramedChannelAeneasChallenge.Varint
 import FramedChannelAeneasChallenge.Zigzag
 import FramedChannelAeneasChallenge.Stuff
 import FramedChannelAeneasChallenge.Crc8
+import FramedChannelAeneasChallenge.SeqNum
 import FramedChannelAeneasChallenge.Channel
 
 /-!
