@@ -305,8 +305,8 @@ def allBank : List Item := toBank allItems
 /-- Seventy-three bridge rows. -/
 example : bank.length = 73 := by decide
 
-/-- One hundred and twelve rows across both packages. -/
-example : allBank.length = 112 := by decide
+/-- One hundred and nineteen rows across both packages. -/
+example : allBank.length = 119 := by decide
 
 -- At this many rows, deciding the witness strings needs more than the default recursion depth.
 set_option maxRecDepth 4096 in
@@ -317,9 +317,9 @@ example : allBank.all Item.hasWitness = true := by decide
 example : noOpenScored allBank := noOpenScored_all allBank
 
 /-- The kernel-scored total over both packages. -/
-example : totalScore allBank = 294 := by decide
+example : totalScore allBank = 311 := by decide
 
 /-- The achievable total over both packages, counting the one compiler-trusting core row. -/
-example : totalMax allBank = 296 := by decide
+example : totalMax allBank = 313 := by decide
 
 end FramedChannel.Bridge

@@ -1352,6 +1352,130 @@ def ring_buffer.RingBuffer.Insts.CoreCloneClone {T : Type} (corecloneCloneInst
     coredefaultDefaultInst corecloneCloneInst
 }
 
+/-- [framed_channel::seq_num::HALF]
+    Source: 'src/seq_num.rs', lines 31:0-31:25 -/
+@[global_simps, irreducible] def seq_num.HALF : Std.U16 := 32768#u16
+
+/-- [framed_channel::seq_num::{impl core::fmt::Debug for framed_channel::seq_num::SeqNum}::fmt]:
+    Source: 'src/seq_num.rs', lines 34:9-34:14
+    Visibility: public -/
+def seq_num.SeqNum.Insts.CoreFmtDebug.fmt
+  (self : seq_num.SeqNum) (f : core.fmt.Formatter) :
+  Result ((core.result.Result Unit core.fmt.Error) × core.fmt.Formatter)
+  := do
+  let dyn := Dyn.mk _ (core.fmt.DebugShared core.fmt.DebugU16) self.value
+  core.fmt.Formatter.debug_struct_field1_finish f (toStr "SeqNum") (toStr
+    "value") dyn
+
+/-- Trait implementation: [framed_channel::seq_num::{impl core::fmt::Debug for framed_channel::seq_num::SeqNum}]
+    Source: 'src/seq_num.rs', lines 34:9-34:14 -/
+@[reducible]
+def seq_num.SeqNum.Insts.CoreFmtDebug : core.fmt.Debug seq_num.SeqNum := {
+  fmt := seq_num.SeqNum.Insts.CoreFmtDebug.fmt
+}
+
+/-- [framed_channel::seq_num::{impl core::clone::Clone for framed_channel::seq_num::SeqNum}::clone]:
+    Source: 'src/seq_num.rs', lines 34:16-34:21
+    Visibility: public -/
+def seq_num.SeqNum.Insts.CoreCloneClone.clone
+  (self : seq_num.SeqNum) : Result seq_num.SeqNum := do
+  ok self
+
+/-- Trait implementation: [framed_channel::seq_num::{impl core::clone::Clone for framed_channel::seq_num::SeqNum}]
+    Source: 'src/seq_num.rs', lines 34:16-34:21 -/
+@[reducible]
+def seq_num.SeqNum.Insts.CoreCloneClone : core.clone.Clone seq_num.SeqNum := {
+  clone := seq_num.SeqNum.Insts.CoreCloneClone.clone
+}
+
+/-- Trait implementation: [framed_channel::seq_num::{impl core::marker::Copy for framed_channel::seq_num::SeqNum}]
+    Source: 'src/seq_num.rs', lines 34:23-34:27 -/
+@[reducible]
+def seq_num.SeqNum.Insts.CoreMarkerCopy : core.marker.Copy seq_num.SeqNum := {
+  cloneInst := seq_num.SeqNum.Insts.CoreCloneClone
+}
+
+/-- Trait implementation: [framed_channel::seq_num::{impl core::marker::StructuralPartialEq for framed_channel::seq_num::SeqNum}]
+    Source: 'src/seq_num.rs', lines 34:29-34:38 -/
+@[reducible]
+def seq_num.SeqNum.Insts.CoreMarkerStructuralPartialEq :
+  core.marker.StructuralPartialEq seq_num.SeqNum := {
+}
+
+/-- [framed_channel::seq_num::{impl core::cmp::PartialEq<framed_channel::seq_num::SeqNum> for framed_channel::seq_num::SeqNum}::eq]:
+    Source: 'src/seq_num.rs', lines 34:29-34:38
+    Visibility: public -/
+def seq_num.SeqNum.Insts.CoreCmpPartialEqSeqNum.eq
+  (self : seq_num.SeqNum) (other : seq_num.SeqNum) : Result Bool := do
+  ok (self.value = other.value)
+
+/-- Trait implementation: [framed_channel::seq_num::{impl core::cmp::PartialEq<framed_channel::seq_num::SeqNum> for framed_channel::seq_num::SeqNum}]
+    Source: 'src/seq_num.rs', lines 34:29-34:38 -/
+@[reducible]
+def seq_num.SeqNum.Insts.CoreCmpPartialEqSeqNum : core.cmp.PartialEq
+  seq_num.SeqNum seq_num.SeqNum := {
+  eq := seq_num.SeqNum.Insts.CoreCmpPartialEqSeqNum.eq
+}
+
+/-- [framed_channel::seq_num::{impl core::cmp::Eq for framed_channel::seq_num::SeqNum}::assert_fields_are_eq]:
+    Source: 'src/seq_num.rs', lines 34:40-34:42
+    Visibility: public -/
+def seq_num.SeqNum.Insts.CoreCmpEq.assert_fields_are_eq
+  (self : seq_num.SeqNum) : Result Unit := do
+  ok ()
+
+/-- Trait implementation: [framed_channel::seq_num::{impl core::cmp::Eq for framed_channel::seq_num::SeqNum}]
+    Source: 'src/seq_num.rs', lines 34:40-34:42 -/
+@[reducible]
+def seq_num.SeqNum.Insts.CoreCmpEq : core.cmp.Eq seq_num.SeqNum := {
+  partialEqInst := seq_num.SeqNum.Insts.CoreCmpPartialEqSeqNum
+  assert_fields_are_eq := seq_num.SeqNum.Insts.CoreCmpEq.assert_fields_are_eq
+}
+
+/-- [framed_channel::seq_num::{framed_channel::seq_num::SeqNum}::new]:
+    Source: 'src/seq_num.rs', lines 42:4-44:5
+    Visibility: public -/
+def seq_num.SeqNum.new (value : Std.U16) : Result seq_num.SeqNum := do
+  ok { value }
+
+/-- [framed_channel::seq_num::{framed_channel::seq_num::SeqNum}::get]:
+    Source: 'src/seq_num.rs', lines 48:4-50:5
+    Visibility: public -/
+def seq_num.SeqNum.get (self : seq_num.SeqNum) : Result Std.U16 := do
+  ok self.value
+
+/-- [framed_channel::seq_num::{framed_channel::seq_num::SeqNum}::succ]:
+    Source: 'src/seq_num.rs', lines 54:4-56:5
+    Visibility: public -/
+def seq_num.SeqNum.succ (self : seq_num.SeqNum) : Result seq_num.SeqNum := do
+  let i ← lift (core.num.U16.wrapping_add self.value 1#u16)
+  ok { value := i }
+
+/-- [framed_channel::seq_num::{framed_channel::seq_num::SeqNum}::add]:
+    Source: 'src/seq_num.rs', lines 67:4-69:5
+    Visibility: public -/
+def seq_num.SeqNum.add
+  (self : seq_num.SeqNum) (n : Std.U16) : Result seq_num.SeqNum := do
+  let i ← lift (core.num.U16.wrapping_add self.value n)
+  ok { value := i }
+
+/-- [framed_channel::seq_num::{framed_channel::seq_num::SeqNum}::dist]:
+    Source: 'src/seq_num.rs', lines 74:4-76:5
+    Visibility: public -/
+def seq_num.SeqNum.dist
+  (self : seq_num.SeqNum) (other : seq_num.SeqNum) : Result Std.U16 := do
+  ok (core.num.U16.wrapping_sub other.value self.value)
+
+/-- [framed_channel::seq_num::{framed_channel::seq_num::SeqNum}::lt]:
+    Source: 'src/seq_num.rs', lines 82:4-85:5
+    Visibility: public -/
+def seq_num.SeqNum.lt
+  (self : seq_num.SeqNum) (other : seq_num.SeqNum) : Result Bool := do
+  let d ← lift (core.num.U16.wrapping_sub other.value self.value)
+  if d != 0#u16
+  then ok (d < seq_num.HALF)
+  else ok false
+
 /-- [framed_channel::stuff::MARKER]
     Source: 'src/stuff.rs', lines 19:0-19:28
     Visibility: public -/
@@ -1670,5 +1794,50 @@ impl_def varint.VarintError.Insts.CoreCmpEq : core.cmp.Eq varint.VarintError
   assert_fields_are_eq := core.cmp.Eq.assert_fields_are_eq.default
     varint.VarintError.Insts.CoreCmpEq
 }
+
+/-- [framed_channel::zigzag::zigzag]:
+    Source: 'src/zigzag.rs', lines 16:0-18:1
+    Visibility: public -/
+def zigzag.zigzag (n : Std.I32) : Result Std.U32 := do
+  let i ← n <<< 1#i32
+  let i1 ← n >>> 31#i32
+  let i2 ← lift (i ^^^ i1)
+  ok (IScalar.hcast .U32 i2)
+
+/-- [framed_channel::zigzag::unzigzag]:
+    Source: 'src/zigzag.rs', lines 21:0-28:1
+    Visibility: public -/
+def zigzag.unzigzag (m : Std.U32) : Result Std.I32 := do
+  let i ← m >>> 1#i32
+  let half ← lift (UScalar.hcast .I32 i)
+  let i1 ← lift (m &&& 1#u32)
+  if i1 = 0#u32
+  then ok half
+  else ok (~~~ half)
+
+/-- [framed_channel::zigzag::encode_i32]:
+    Source: 'src/zigzag.rs', lines 31:0-33:1
+    Visibility: public -/
+def zigzag.encode_i32
+  (n : Std.I32) (out : alloc.vec.Vec Std.U8) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  let i ← zigzag.zigzag n
+  varint.encode_u32 i out
+
+/-- [framed_channel::zigzag::decode_i32]:
+    Source: 'src/zigzag.rs', lines 44:0-49:1
+    Visibility: public -/
+def zigzag.decode_i32
+  (bytes : Slice Std.U8) :
+  Result (core.result.Result (Std.I32 × Std.Usize) varint.VarintError)
+  := do
+  let r ← varint.decode_u32 bytes
+  match r with
+  | core.result.Result.Ok p =>
+    let (m, k) := p
+    let i ← zigzag.unzigzag m
+    ok (core.result.Result.Ok (i, k))
+  | core.result.Result.Err e => ok (core.result.Result.Err e)
 
 end framed_channel
