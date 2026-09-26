@@ -4,6 +4,7 @@ import FramedChannel.Model.RingBuffer.Theorems
 import FramedChannel.Model.Varint.Theorems
 import FramedChannel.Model.Crc8.Theorems
 import FramedChannel.Model.Stuff.Theorems
+import FramedChannel.Model.Zigzag.Theorems
 import FramedChannel.Model.VecQueue.Theorems
 import FramedChannel.Composition.Channel.Theorems
 import FramedChannel.Composition.Channel.Instances
@@ -31,8 +32,11 @@ refines        VQ         -> BoundedQueue   (VecQueue.instBoundedQueueLaws;   Ru
 refines        Varint     -> CodecLaws      (Varint.instCodecLaws)
 refines        Stuff      -> CodecLaws      (Stuff.instCodecLaws)
 refines        Crc8       -> ChecksumLaws   (Crc8.instChecksumLawsBitwise, ...Tabled)
+refines        Zigzag     -> CodecLaws      (Zigzag.instCodecLaws; alpha = Int)
 distilled_from inv_preserve   <- {push_inv, pop_inv}
 distilled_from refine_commute <- {push_contents, pop_contents}
+distilled_from Zigzag.zigzag_roundtrip  <- CodecLaws.round_trip at Leb128 (retrieval rung)
+distilled_from Zigzag.encode_length_le <- CodecLaws.length_le  at Leb128 (retrieval rung)
 lemma_node     idx_ne <- push_contents
 composition    Channel.send_deliver <- {parseFrame_encodeFrame, varint_roundtrip,
                                         crc8_table_eq_bits, push_law, not_full_of_lt,
@@ -89,6 +93,21 @@ def items : List CertifiedItem :=
       "the encoding fits in five bytes on the u32 domain",
     register% Varint.instCodecLaws     ItemType.E2 2 true 3510309193
       "LEB128 satisfies the codec laws",
+    -- Zigzag: the signed varint, the codec interface's second value type
+    register% Zigzag.zigzag_lt         ItemType.E1 1 true 2039420113
+      "on the i32 range the zigzag image lies in the varint's u32 domain",
+    register% Zigzag.unzigzag_zigzag   ItemType.E2 2 true 462946453
+      "unzigzag inverts zigzag on all of Int, hypothesis-free",
+    register% Zigzag.zigzag_unzigzag   ItemType.E1 1 true 4057087783
+      "zigzag inverts unzigzag on all of Nat, hypothesis-free",
+    register% Zigzag.decode_fail_iff   ItemType.E1 1 true 1025070864
+      "the signed decode fails exactly when the underlying LEB128 decode fails",
+    register% Zigzag.zigzag_roundtrip  ItemType.E2 2 true 1979916437
+      "decode (encode n) on the i32 range, retrieved from CodecLaws at Leb128",
+    register% Zigzag.encode_length_le  ItemType.E1 1 true 1980960392
+      "the signed encoding fits in five bytes, retrieved from the varint's own bound",
+    register% Zigzag.instCodecLaws     ItemType.E2 2 true 1653379488
+      "the zigzag signed varint satisfies the codec laws at alpha = Int",
     -- Stuff: HDLC-style byte stuffing
     register% Stuff.stuff_marker_free  ItemType.E1 1 true 4085196778
       "a stuffed payload contains no frame boundary byte",
@@ -135,8 +154,8 @@ def bank : List Item := toBank items
 #print axioms items
 #print axioms bank
 
-/-- Thirty-nine rows. -/
-example : bank.length = 39 := by decide
+/-- Forty-six rows. -/
+example : bank.length = 46 := by decide
 
 /-- Every row names a nonvacuity witness. -/
 example : bank.all Item.hasWitness = true := by decide
@@ -145,10 +164,10 @@ example : bank.all Item.hasWitness = true := by decide
 example : noOpenScored bank := noOpenScored_all bank
 
 /-- The kernel-scored total. -/
-example : totalScore bank = 98 := by decide
+example : totalScore bank = 115 := by decide
 
 /-- The achievable total, counting the one compiler-trusting row. -/
-example : totalMax bank = 100 := by decide
+example : totalMax bank = 117 := by decide
 
 /-! ## Coverage: what is deliberately not registered
 
@@ -165,6 +184,11 @@ Every component has at minimum an error-agreement or bounds row (`E1`) and a ref
   `instChecksumLawsTabled` used to be excluded as double-counting `crc8_table_eq_bits`, but the
   bridge registers both of ITS extracted `ChecksumLaws` instances, so excluding the core's second
   one was an asymmetry between the two packages rather than a principle.)
+* `Zigzag.encode_eq` -- the `rfl` bridge between the projection spelling of `encode` and
+  `Varint.encode (zigzag n)`. It is a spelling identity the bridge package rewrites with, not an
+  obligation of the codec, so it earns no bank row. Everything else the unit proves is registered:
+  the bound, both directions of the bijection, error agreement, the two retrieved laws and the
+  `CodecLaws` instance.
 
 Per-component coverage, item by item, is in the `coverage:` block of each manifest under
 `certificate/`. -/
